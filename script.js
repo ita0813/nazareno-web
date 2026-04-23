@@ -100,6 +100,7 @@ document.addEventListener('DOMContentLoaded', function () {
         "Geología": geoP,
         "Uso de Suelo": usoSueloP,
         "Edafología": edafoP,
+        "Pendientes (Ráster)": capaPendientes,
     }, { collapsed: false }).addTo(map);
 
     var limitesPendientes = [
@@ -112,6 +113,5 @@ document.addEventListener('DOMContentLoaded', function () {
         interactive: true
     });
 
-     overlayMaps["Pendientes (Ráster)"] = capaPendientes;
 
 });
