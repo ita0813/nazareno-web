@@ -91,6 +91,15 @@ document.addEventListener('DOMContentLoaded', function () {
         legend.remove();
         legend.addTo(map);
     });
+    var limitesPendientes = [
+        [16.997716, -96.815714],
+        [17.063546, -96.723985]
+    ];
+
+    var capaPendientes = L.imageOverlay('pendientes.png', limitesPendientes, {
+        opacity: 0.7, 
+        interactive: true
+    });
 
     legend.addTo(map);
     L.control.layers(null, {
@@ -103,15 +112,6 @@ document.addEventListener('DOMContentLoaded', function () {
         "Pendientes (Ráster)": capaPendientes,
     }, { collapsed: false }).addTo(map);
 
-    var limitesPendientes = [
-        [16.997716, -96.815714],
-        [17.063546, -96.723985]
-    ];
-
-    var capaPendientes = L.imageOverlay('pendientes.png', limitesPendientes, {
-        opacity: 0.7, 
-        interactive: true
-    });
 
 
 });
