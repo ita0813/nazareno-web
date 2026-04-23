@@ -91,7 +91,8 @@ document.addEventListener('DOMContentLoaded', function () {
         legend.remove();
         legend.addTo(map);
     });
-    var limitesPendientes = [
+
+       var limitesPendientes = [
         [16.997716, -96.815714],
         [17.063546, -96.723985]
     ];
@@ -100,7 +101,6 @@ document.addEventListener('DOMContentLoaded', function () {
         opacity: 0.7, 
         interactive: true
     });
-
     legend.addTo(map);
     L.control.layers(null, {
         "Límite Cuenca": cuencaP,
@@ -110,8 +110,10 @@ document.addEventListener('DOMContentLoaded', function () {
         "Uso de Suelo": usoSueloP,
         "Edafología": edafoP,
         "Pendientes (Ráster)": capaPendientes,
+        
     }, { collapsed: false }).addTo(map);
 
+ 
 
-
+    
 });
