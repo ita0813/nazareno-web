@@ -1,694 +1,362 @@
-<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
-        <meta name="mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <link rel="stylesheet" href="css/leaflet.css">
-        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
-        <link rel="stylesheet" href="css/qgis2web.css">
-        <link rel="stylesheet" href="css/fontawesome-all.min.css">
-        <link rel="stylesheet" href="css/leaflet.photon.css">
-        <style>
-        html, body, #map {
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proyecto Microcuenca - Nazareno</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .map-container {
+            height: 100%;
+            width: 100%;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+
+        iframe {
             width: 100%;
             height: 100%;
-            padding: 0;
-            margin: 0;
+            border: none;
         }
-        </style>
-        <title></title>
-    </head>
-    <body>
-        <div id="map">
+    </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+
+    <header class="bg-white border-b-2 border-slate-100 py-6 px-8 shadow-md">
+        <div class="max-w-full mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-6">
+                <img src="cidir.jpg" alt="Logo CIDIR" class="h-20 w-auto">
+                <div class="border-l-2 border-slate-200 h-16 pl-6 flex flex-col justify-center">
+                    <h1 class="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-none">
+                        Microcuenca Nazareno
+                    </h1>
+                    <p class="text-sm font-bold text-indigo-600 uppercase tracking-[0.3em] mt-2">
+                        Análisis Hidrológico y Modelamiento
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button onclick="toggleModal('formModal')"
+                    class="flex items-center space-x-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-300 border border-indigo-200 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>CAPTURA</span>
+                </button>
+            <button onclick="toggleModal('loginModal')"
+                class="flex items-center space-x-2 bg-slate-800 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all duration-300 shadow-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    <span>ACCESO</span>
+                </button>
         </div>
-        <script src="js/qgis2web_expressions.js"></script>
-        <script src="js/leaflet.js"></script>
-        <script src="js/L.Control.Layers.Tree.min.js"></script>
-        <script src="js/leaflet.rotatedMarker.js"></script>
-        <script src="js/leaflet.pattern.js"></script>
-        <script src="js/leaflet-hash.js"></script>
-        <script src="js/Autolinker.min.js"></script>
-        <script src="js/rbush.min.js"></script>
-        <script src="js/labelgun.min.js"></script>
-        <script src="js/labels.js"></script>
-        <script src="js/leaflet.photon.js"></script>
-        <script src="data/Edafologia_0.js"></script>
-        <script src="data/Geologia_2.js"></script>
-        <script src="data/Pozos_4.js"></script>
-        <script src="data/RedHidrica_5.js"></script>
-        <script src="data/MicrocuencaNazareno_7.js"></script>
-        <script>
-        var map = L.map('map', {
-            zoomControl:false, maxZoom:28, minZoom:1
-        }).fitBounds([[16.978955581305105,-96.80576502896392],[17.08107019437837,-96.57855825872052]]);
-        var hash = new L.Hash(map);
-        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
-        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
-        // remove popup's row if "visible-with-data"
-        function removeEmptyRowsFromPopupContent(content, feature) {
-         var tempDiv = document.createElement('div');
-         tempDiv.innerHTML = content;
-         var rows = tempDiv.querySelectorAll('tr');
-         for (var i = 0; i < rows.length; i++) {
-             var td = rows[i].querySelector('td.visible-with-data');
-             var key = td ? td.id : '';
-             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
-                 rows[i].parentNode.removeChild(rows[i]);
-             }
-         }
-         return tempDiv.innerHTML;
-        }
-        // modify popup if contains media
-        function addClassToPopupIfMedia(content, popup) {
-            var tempDiv = document.createElement('div');
-            tempDiv.innerHTML = content;
-            var imgTd = tempDiv.querySelector('td img');
-            if (imgTd) {
-                var src = imgTd.getAttribute('src');
-                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
-                    popup._contentNode.classList.add('media');
-                    setTimeout(function() {
-                        popup.update();
-                    }, 10);
-                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
-                    var audio = document.createElement('audio');
-                    audio.controls = true;
-                    audio.src = src;
-                    imgTd.parentNode.replaceChild(audio, imgTd);
-                    popup._contentNode.classList.add('media');
-                    setTimeout(function() {
-                        popup.setContent(tempDiv.innerHTML);
-                        popup.update();
-                    }, 10);
-                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
-                    var video = document.createElement('video');
-                    video.controls = true;
-                    video.src = src;
-                    video.style.width = "400px";
-                    video.style.height = "300px";
-                    video.style.maxHeight = "60vh";
-                    video.style.maxWidth = "60vw";
-                    imgTd.parentNode.replaceChild(video, imgTd);
-                    popup._contentNode.classList.add('media');
-                    // Aggiorna il popup quando il video carica i metadati
-                    video.addEventListener('loadedmetadata', function() {
-                        popup.update();
-                    });
-                    setTimeout(function() {
-                        popup.setContent(tempDiv.innerHTML);
-                        popup.update();
-                    }, 10);
-                } else {
-                    popup._contentNode.classList.remove('media');
-                }
+    </header>
+<div id="loginModal"
+        class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
+            <div class="p-8">
+                <div class="text-center mb-8">
+                    <p class="text-slate-500 text-sm font-bold uppercase tracking-widest">Ingresar Clave</p>
+                </div>
+                <div class="space-y-4">
+                    <input type="password" id="adminPass"
+                        class="w-full px-5 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-center tracking-[0.5em]"
+                        placeholder="••••••••">
+                    <button onclick="checkLogin()"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all transform active:scale-95">
+                        ACCESO
+                    </button>
+                    <button onclick="toggleModal('loginModal')"
+                        class="w-full text-slate-400 text-xs font-semibold hover:text-slate-600 transition-colors uppercase">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+  <div id="formModal" 
+    class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+
+    <div class="bg-white w-full max-w-md rounded-3xl shadow-xl overflow-hidden border border-slate-200">
+
+         <!-- Botón cerrar -->
+        <button 
+            onclick="toggleModal('formModal')"
+            class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-2xl leading-none transition"
+        > &times;
+        </button>
+        
+        <!-- Header -->
+        <div class="px-6 py-5 border-b border-slate-200 text-center">
+
+            <p class="text-slate-800 text-xl font-bold">
+                Registro de datos
+            </p>
+        </div>
+
+            <div class="p-6 space-y-4">
+                <button onclick="obtenerGPS()" class="group flex items-center justify-center gap-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all p-3 rounded-xl w-full font-bold border border-indigo-100 uppercase text-[11px]">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Ubicación GPS
+                </button>
+     
+                <div class="space-y-4 pt-2">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Titular del Pozo</label>
+                        <input type="text" id="form-titular" class="mt-1 block w-full bg-slate-50 border-slate-200 rounded-xl p-3 text-slate-700 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none border transition-all">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Uso del Agua</label>
+                        <select id="form-uso" class="mt-1 block w-full bg-slate-50 border-slate-200 rounded-xl p-3 text-slate-700 outline-none border focus:bg-white transition-all">
+                            <option value="Agricola">Agrícola</option>
+                            <option value="Domestico">Doméstico</option>
+                            <option value="Urbano">Urbano</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Nivel Estático</label>
+                        <div class="relative">
+                            <input type="number" id="form-nivel" class="mt-1 block w-full bg-slate-50 border-slate-200 rounded-xl p-3 text-slate-700 outline-none border focus:bg-white transition-all">
+                            <span class="absolute right-4 top-3.5 text-slate-400 text-xs font-bold uppercase tracking-tighter"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="enviarDatos()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-emerald-100 transition-all transform active:scale-95 mt-4 text-sm tracking-widest uppercase">
+                    Guardar 
+                </button>
+            </div>
+        </div>
+    </div>
+    
+
+    <section class="py-16 px-6 max-w-7xl mx-auto">
+        <div class="grid lg:grid-cols-5 gap-10">
+            <div class="lg:col-span-2 flex flex-col justify-center">
+                <h2 class="text-3xl font-bold text-slate-800">Delimitación y Discretización</h2>
+                <div class="w-16 h-1 bg-blue-600 my-6"></div>
+                <p class="text-slate-600 leading-relaxed mb-6">
+                    Se presenta la discretización de la microcuenca del río Nazareno. Esta herramienta permite analizar
+                    el comportamiento del flujo y la recarga en el acuífero de Valles Centrales mediante capas de
+                    geología, edafología, y uso de suelo.
+                </p>
+
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mt-6">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-300">
+                                <th class="py-1 text-[10px] font-bold text-slate-500 uppercase">Parámetro</th>
+                                <th class="py-1 text-[10px] font-bold text-slate-500 uppercase text-right">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-200">
+                            <tr>
+                                <td class="py-2 text-[11px] font-medium text-slate-600">Localización</td>
+                                <td class="py-2 text-[11px] font-bold text-slate-900 text-right">Nazareno, Xoxocotlán
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 text-[11px] font-medium text-slate-600">Superficie (ha)</td>
+                                <td class="py-2 text-[11px] font-bold text-slate-900 text-right">2,703.02</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 text-[11px] font-medium text-slate-600">Perímetro (km)</td>
+                                <td class="py-2 text-[11px] font-bold text-slate-900 text-right">38.72</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 text-[11px] font-medium text-slate-600">Fuente</td>
+                                <td class="py-2 text-[10px] font-bold text-blue-700 text-right italic">CONAGUA-SIATL /
+                                    QGIS</td>
+                            </tr>
+
+
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+
+            <div class="lg:col-span-3 h-[520px]">
+                <div class="map-container shadow-inner border- border-slate-500">
+                    <iframe src="mapa_qgis/index.html"></iframe>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+
+        let latCapturada = "";
+        let lonCapturada = "";
+
+        // Función para el GPS
+        function obtenerGPS() {
+            const status = document.getElementById('coords-status');
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    latCapturada = pos.coords.latitude;
+                    lonCapturada = pos.coords.longitude;
+                    status.innerText = `GPS: ${latCapturada.toFixed(5)}, ${lonCapturada.toFixed(5)}`;
+                    alert("¡Ubicación capturada!");
+                });
             } else {
-                popup._contentNode.classList.remove('media');
+                alert("Tu navegador no soporta GPS.");
             }
-        }
-        var zoomControl = L.control.zoom({
-            position: 'topleft'
-        }).addTo(map);
-        var bounds_group = new L.featureGroup([]);
-        function setBounds() {
-        }
-        function pop_Edafologia_0(feature, layer) {
-            var popupContent = '<table>\
-                    <tr>\
-                        <th scope="row">GRUPO1</th>\
-                        <td class="visible-with-data" id="GRUPO1">' + (feature.properties['GRUPO1'] !== null ? autolinker.link(String(feature.properties['GRUPO1']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">HECTARES</th>\
-                        <td class="visible-with-data" id="HECTARES">' + (feature.properties['HECTARES'] !== null ? autolinker.link(String(feature.properties['HECTARES']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                </table>';
-            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
-			layer.on('popupopen', function(e) {
-				addClassToPopupIfMedia(content, e.popup);
-			});
-			layer.bindPopup(content, { maxHeight: 400 });
         }
 
-        function style_Edafologia_0_0(feature) {
-            switch(String(feature.properties['GRUPO1'])) {
-                default:
-                    return {
-                pane: 'pane_Edafologia_0',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.874)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(209,234,98,0.874)',
-                interactive: true,
-            }
-                    break;
-                case 'FL':
-                    return {
-                pane: 'pane_Edafologia_0',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.874)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(237,230,28,0.874)',
-                interactive: true,
-            }
-                    break;
-                case 'LP':
-                    return {
-                pane: 'pane_Edafologia_0',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.874)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(130,130,130,0.874)',
-                interactive: true,
-            }
-                    break;
-                case 'NA':
-                    return {
-                pane: 'pane_Edafologia_0',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.874)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(185,188,191,0.874)',
-                interactive: true,
-            }
-                    break;
-                case 'RG':
-                    return {
-                pane: 'pane_Edafologia_0',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.874)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(121,92,83,0.874)',
-                interactive: true,
-            }
-                    break;
-                case 'VR':
-                    return {
-                pane: 'pane_Edafologia_0',
-                opacity: 1,
-                color: 'rgba(35,35,35,0.874)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(132,83,138,0.874)',
-                interactive: true,
-            }
-                    break;
-            }
-        }
-        map.createPane('pane_Edafologia_0');
-        map.getPane('pane_Edafologia_0').style.zIndex = 400;
-        map.getPane('pane_Edafologia_0').style['mix-blend-mode'] = 'normal';
-        var layer_Edafologia_0 = new L.geoJson(json_Edafologia_0, {
-            attribution: '',
-            interactive: true,
-            dataVar: 'json_Edafologia_0',
-            layerName: 'layer_Edafologia_0',
-            pane: 'pane_Edafologia_0',
-            onEachFeature: pop_Edafologia_0,
-            style: style_Edafologia_0_0,
-        });
-        bounds_group.addLayer(layer_Edafologia_0);
-        map.addLayer(layer_Edafologia_0);
-        map.createPane('pane_Elevacion_1');
-        map.getPane('pane_Elevacion_1').style.zIndex = 401;
-        var img_Elevacion_1 = 'data/Elevacion_1.png';
-        var img_bounds_Elevacion_1 = [[16.997716616302988,-96.81570535531802],[17.063546347019894,-96.72398498592987]];
-        var layer_Elevacion_1 = new L.imageOverlay(img_Elevacion_1,
-                                              img_bounds_Elevacion_1,
-                                              {pane: 'pane_Elevacion_1'});
-        bounds_group.addLayer(layer_Elevacion_1);
-        map.addLayer(layer_Elevacion_1);
-        function pop_Geologia_2(feature, layer) {
-            var popupContent = '<table>\
-                    <tr>\
-                        <th scope="row">CLASE</th>\
-                        <td class="visible-with-data" id="CLASE">' + (feature.properties['CLASE'] !== null ? autolinker.link(String(feature.properties['CLASE']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">TIPO</th>\
-                        <td class="visible-with-data" id="TIPO">' + (feature.properties['TIPO'] !== null ? autolinker.link(String(feature.properties['TIPO']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                </table>';
-            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
-			layer.on('popupopen', function(e) {
-				addClassToPopupIfMedia(content, e.popup);
-			});
-			layer.bindPopup(content, { maxHeight: 400 });
-        }
+        function enviarDatos() {
+            const urlBaseDeDatos = "https://script.google.com/macros/s/AKfycbxZSTHuEbQefVDR3hX336_E5ysBCdg009rPXrjBxT3FEA9VOTBfUu2k8-dHLv8tOUtl/exec";
 
-        function style_Geologia_2_0(feature) {
-            switch(String(feature.properties['TIPO'])) {
-                case 'Aluvial':
-                    return {
-                pane: 'pane_Geologia_2',
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(98,223,213,1.0)',
-                interactive: true,
-            }
-                    break;
-                case 'Gneis':
-                    return {
-                pane: 'pane_Geologia_2',
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(141,210,114,1.0)',
-                interactive: true,
-            }
-                    break;
-                case 'Lutita-Arenisca':
-                    return {
-                pane: 'pane_Geologia_2',
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(150,138,240,1.0)',
-                interactive: true,
-            }
-                    break;
-                case 'N/A':
-                    return {
-                pane: 'pane_Geologia_2',
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(217,78,173,1.0)',
-                interactive: true,
-            }
-                    break;
-                default:
-                    return {
-                pane: 'pane_Geologia_2',
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(207,118,22,1.0)',
-                interactive: true,
-            }
-                    break;
-            }
-        }
-        map.createPane('pane_Geologia_2');
-        map.getPane('pane_Geologia_2').style.zIndex = 402;
-        map.getPane('pane_Geologia_2').style['mix-blend-mode'] = 'normal';
-        var layer_Geologia_2 = new L.geoJson(json_Geologia_2, {
-            attribution: '',
-            interactive: true,
-            dataVar: 'json_Geologia_2',
-            layerName: 'layer_Geologia_2',
-            pane: 'pane_Geologia_2',
-            onEachFeature: pop_Geologia_2,
-            style: style_Geologia_2_0,
-        });
-        bounds_group.addLayer(layer_Geologia_2);
-        map.addLayer(layer_Geologia_2);
-        map.createPane('pane_Pendiente_3');
-        map.getPane('pane_Pendiente_3').style.zIndex = 403;
-        var img_Pendiente_3 = 'data/Pendiente_3.png';
-        var img_bounds_Pendiente_3 = [[16.997716616302988,-96.81570535531802],[17.063546347019894,-96.72398498592987]];
-        var layer_Pendiente_3 = new L.imageOverlay(img_Pendiente_3,
-                                              img_bounds_Pendiente_3,
-                                              {pane: 'pane_Pendiente_3'});
-        bounds_group.addLayer(layer_Pendiente_3);
-        map.addLayer(layer_Pendiente_3);
-        function pop_Pozos_4(feature, layer) {
-            var popupContent = '<table>\
-                    <tr>\
-                        <th scope="row">Titular</th>\
-                        <td class="visible-with-data" id="Titular">' + (feature.properties['Titular'] !== null ? autolinker.link(String(feature.properties['Titular']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">Uso</th>\
-                        <td class="visible-with-data" id="Uso">' + (feature.properties['Uso'] !== null ? autolinker.link(String(feature.properties['Uso']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">Volumen de</th>\
-                        <td class="visible-with-data" id="Volumen de">' + (feature.properties['Volumen de'] !== null ? autolinker.link(String(feature.properties['Volumen de']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">Volumendea</th>\
-                        <td class="visible-with-data" id="Volumendea">' + (feature.properties['Volumendea'] !== null ? autolinker.link(String(feature.properties['Volumendea']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">Superficie</th>\
-                        <td class="visible-with-data" id="Superficie">' + (feature.properties['Superficie'] !== null ? autolinker.link(String(feature.properties['Superficie']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">LAT</th>\
-                        <td class="visible-with-data" id="LAT">' + (feature.properties['LAT'] !== null ? autolinker.link(String(feature.properties['LAT']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">LON</th>\
-                        <td class="visible-with-data" id="LON">' + (feature.properties['LON'] !== null ? autolinker.link(String(feature.properties['LON']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                </table>';
-            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
-			layer.on('popupopen', function(e) {
-				addClassToPopupIfMedia(content, e.popup);
-			});
-			layer.bindPopup(content, { maxHeight: 400 });
-        }
-
-        function style_Pozos_4_0(feature) {
-            if (feature.properties['Volumendea'] >= 150.000000 && feature.properties['Volumendea'] <= 920.000000 ) {
-                return {
-                pane: 'pane_Pozos_4',
-                radius: 2.0,
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1,
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(215,25,28,1.0)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Volumendea'] >= 920.000000 && feature.properties['Volumendea'] <= 187001.600000 ) {
-                return {
-                pane: 'pane_Pozos_4',
-                radius: 2.5,
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1,
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(51,160,44,1.0)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Volumendea'] >= 187001.600000 && feature.properties['Volumendea'] <= 709440.000000 ) {
-                return {
-                pane: 'pane_Pozos_4',
-                radius: 3.0,
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1,
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(251,154,153,1.0)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Volumendea'] >= 709440.000000 && feature.properties['Volumendea'] <= 3193748.000000 ) {
-                return {
-                pane: 'pane_Pozos_4',
-                radius: 3.5,
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1,
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(9,89,182,1.0)',
-                interactive: true,
-            }
-            }
-            if (feature.properties['Volumendea'] >= 3193748.000000 && feature.properties['Volumendea'] <= 27500000.000000 ) {
-                return {
-                pane: 'pane_Pozos_4',
-                radius: 4.0,
-                opacity: 1,
-                color: 'rgba(35,35,35,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 1,
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(215,25,28,1.0)',
-                interactive: true,
-            }
-            }
-        }
-        map.createPane('pane_Pozos_4');
-        map.getPane('pane_Pozos_4').style.zIndex = 404;
-        map.getPane('pane_Pozos_4').style['mix-blend-mode'] = 'normal';
-        var layer_Pozos_4 = new L.geoJson(json_Pozos_4, {
-            attribution: '',
-            interactive: true,
-            dataVar: 'json_Pozos_4',
-            layerName: 'layer_Pozos_4',
-            pane: 'pane_Pozos_4',
-            onEachFeature: pop_Pozos_4,
-            pointToLayer: function (feature, latlng) {
-                var context = {
-                    feature: feature,
-                    variables: {}
-                };
-                return L.circleMarker(latlng, style_Pozos_4_0(feature));
-            },
-        });
-        bounds_group.addLayer(layer_Pozos_4);
-        map.addLayer(layer_Pozos_4);
-        function pop_RedHidrica_5(feature, layer) {
-            var popupContent = '<table>\
-                    <tr>\
-                        <th scope="row">Strahler</th>\
-                        <td class="visible-with-data" id="Strahler">' + (feature.properties['Strahler'] !== null ? autolinker.link(String(feature.properties['Strahler']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                </table>';
-            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
-			layer.on('popupopen', function(e) {
-				addClassToPopupIfMedia(content, e.popup);
-			});
-			layer.bindPopup(content, { maxHeight: 400 });
-        }
-
-        function style_RedHidrica_5_0(feature) {
-            if (feature.properties['Strahler'] >= 1.000000 && feature.properties['Strahler'] <= 1.000000 ) {
-                return {
-                pane: 'pane_RedHidrica_5',
-                opacity: 1,
-                color: 'rgba(27,27,155,1.0)',
-                dashArray: '',
-                lineCap: 'square',
-                lineJoin: 'bevel',
-                weight: 1.0,
-                fillOpacity: 0,
-                interactive: true,
-            }
-            }
-            if (feature.properties['Strahler'] >= 1.000000 && feature.properties['Strahler'] <= 1.000000 ) {
-                return {
-                pane: 'pane_RedHidrica_5',
-                opacity: 1,
-                color: 'rgba(27,27,155,1.0)',
-                dashArray: '',
-                lineCap: 'square',
-                lineJoin: 'bevel',
-                weight: 2.0,
-                fillOpacity: 0,
-                interactive: true,
-            }
-            }
-            if (feature.properties['Strahler'] >= 1.000000 && feature.properties['Strahler'] <= 2.000000 ) {
-                return {
-                pane: 'pane_RedHidrica_5',
-                opacity: 1,
-                color: 'rgba(27,27,155,1.0)',
-                dashArray: '',
-                lineCap: 'square',
-                lineJoin: 'bevel',
-                weight: 2.0,
-                fillOpacity: 0,
-                interactive: true,
-            }
-            }
-            if (feature.properties['Strahler'] >= 2.000000 && feature.properties['Strahler'] <= 3.000000 ) {
-                return {
-                pane: 'pane_RedHidrica_5',
-                opacity: 1,
-                color: 'rgba(27,27,155,1.0)',
-                dashArray: '',
-                lineCap: 'square',
-                lineJoin: 'bevel',
-                weight: 3.0,
-                fillOpacity: 0,
-                interactive: true,
-            }
-            }
-            if (feature.properties['Strahler'] >= 3.000000 && feature.properties['Strahler'] <= 5.000000 ) {
-                return {
-                pane: 'pane_RedHidrica_5',
-                opacity: 1,
-                color: 'rgba(27,27,155,1.0)',
-                dashArray: '',
-                lineCap: 'square',
-                lineJoin: 'bevel',
-                weight: 4.0,
-                fillOpacity: 0,
-                interactive: true,
-            }
-            }
-        }
-        map.createPane('pane_RedHidrica_5');
-        map.getPane('pane_RedHidrica_5').style.zIndex = 405;
-        map.getPane('pane_RedHidrica_5').style['mix-blend-mode'] = 'normal';
-        var layer_RedHidrica_5 = new L.geoJson(json_RedHidrica_5, {
-            attribution: '',
-            interactive: true,
-            dataVar: 'json_RedHidrica_5',
-            layerName: 'layer_RedHidrica_5',
-            pane: 'pane_RedHidrica_5',
-            onEachFeature: pop_RedHidrica_5,
-            style: style_RedHidrica_5_0,
-        });
-        bounds_group.addLayer(layer_RedHidrica_5);
-        map.addLayer(layer_RedHidrica_5);
-        map.createPane('pane_Sombras_6');
-        map.getPane('pane_Sombras_6').style.zIndex = 406;
-        var img_Sombras_6 = 'data/Sombras_6.png';
-        var img_bounds_Sombras_6 = [[16.936668112993996,-96.83576709026208],[17.125864706757795,-96.71972197332917]];
-        var layer_Sombras_6 = new L.imageOverlay(img_Sombras_6,
-                                              img_bounds_Sombras_6,
-                                              {pane: 'pane_Sombras_6'});
-        bounds_group.addLayer(layer_Sombras_6);
-        map.addLayer(layer_Sombras_6);
-        function pop_MicrocuencaNazareno_7(feature, layer) {
-            var popupContent = '<table>\
-                    <tr>\
-                        <th scope="row">Area_Ha</th>\
-                        <td class="visible-with-data" id="Area_Ha">' + (feature.properties['Area_Ha'] !== null ? autolinker.link(String(feature.properties['Area_Ha']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                    <tr>\
-                        <th scope="row">Area_Km2</th>\
-                        <td class="visible-with-data" id="Area_Km2">' + (feature.properties['Area_Km2'] !== null ? autolinker.link(String(feature.properties['Area_Km2']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
-                    </tr>\
-                </table>';
-            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
-			layer.on('popupopen', function(e) {
-				addClassToPopupIfMedia(content, e.popup);
-			});
-			layer.bindPopup(content, { maxHeight: 400 });
-        }
-
-        function style_MicrocuencaNazareno_7_0() {
-            return {
-                pane: 'pane_MicrocuencaNazareno_7',
-                opacity: 1,
-                color: 'rgba(26,178,228,1.0)',
-                dashArray: '',
-                lineCap: 'butt',
-                lineJoin: 'miter',
-                weight: 5.0, 
-                fill: true,
-                fillOpacity: 1,
-                fillColor: 'rgba(33,124,183,1.0)',
-                interactive: true,
-            }
-        }
-        map.createPane('pane_MicrocuencaNazareno_7');
-        map.getPane('pane_MicrocuencaNazareno_7').style.zIndex = 407;
-        map.getPane('pane_MicrocuencaNazareno_7').style['mix-blend-mode'] = 'multiply';
-        var layer_MicrocuencaNazareno_7 = new L.geoJson(json_MicrocuencaNazareno_7, {
-            attribution: '',
-            interactive: true,
-            dataVar: 'json_MicrocuencaNazareno_7',
-            layerName: 'layer_MicrocuencaNazareno_7',
-            pane: 'pane_MicrocuencaNazareno_7',
-            onEachFeature: pop_MicrocuencaNazareno_7,
-            style: style_MicrocuencaNazareno_7_0,
-        });
-        bounds_group.addLayer(layer_MicrocuencaNazareno_7);
-        map.addLayer(layer_MicrocuencaNazareno_7);
-        setBounds();
-        var i = 0;
-        layer_Pozos_4.eachLayer(function(layer) {
-            var context = {
-                feature: layer.feature,
-                variables: {}
+            const datos = {
+                titular: document.getElementById('form-titular').value,
+                uso: document.getElementById('form-uso').value,
+                nivel_estatico: document.getElementById('form-nivel').value,
+                latitud: latCapturada,
+                longitud: lonCapturada,
+                id_pozo: "Nuevo_Campo",
+                estado: "Operando",
+                observaciones: "Capturado desde móvil",
+                foto_url: ""
             };
-            layer.bindTooltip((layer.feature.properties['Uso'] !== null?String('<div style="color: #323232; font-size: 5pt; font-family: \'Open Sans\', sans-serif;">' + layer.feature.properties['Uso']) + '</div>':''), {permanent: true, offset: [-0, -16], className: 'css_Pozos_4'});
-            labels.push(layer);
-            totalMarkers += 1;
-              layer.added = true;
-              addLabel(layer, i);
-              i++;
-        });
-        L.ImageOverlay.include({
-            getBounds: function () {
-                return this._bounds;
+
+            fetch(urlBaseDeDatos, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(datos)
+            }).then(() => {
+                alert("Pozo guardado");
+            });
+        }
+        window.onload = function () {
+            actualizarInterfaz();
+        };
+
+        // MODIFICACIÓN: Ahora recibe un "id" para saber qué modal abrir/cerrar
+function toggleModal(modalId) {
+    // Si no pasas ID (como en tu botón de cancelar), por defecto usa el de login
+    const id = modalId || 'loginModal';
+    const modal = document.getElementById(id);
+    
+    if (modal) {
+        modal.classList.toggle('hidden');
+        // Si es el de login, limpiamos la clave al cerrar
+        if (id === 'loginModal' && modal.classList.contains('hidden')) {
+            document.getElementById('adminPass').value = "";
+        }
+    }
+}
+
+function checkLogin() {
+    const pass = document.getElementById('adminPass').value;
+    // Tu clave personalizada
+    if (pass === 'cidir2026') {
+        localStorage.setItem('userRole', 'superuser');
+        toggleModal('loginModal'); // Cerramos específicamente el login
+        actualizarInterfaz();
+        const iframe = document.querySelector('iframe');
+        iframe.src = iframe.src;
+        console.log("SESIÓN INICIADA");
+    } else {
+        alert('Clave incorrecta.');
+    }
+}
+
+function actualizarInterfaz() {
+    const role = localStorage.getItem('userRole');
+    // Buscamos el botón de ACCESO (es el segundo en tu HTML actual)
+    const btnAcceso = document.querySelector('button[onclick*="loginModal"]');
+
+    if (role === 'superuser' && btnAcceso) {
+        btnAcceso.classList.remove('bg-slate-800', 'hover:bg-indigo-600');
+        btnAcceso.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+        btnAcceso.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04a11.357 11.357 0 00-1.573 5.344c0 1.258.204 2.468.583 3.606a11.954 11.954 0 005.212 6.603l1.838 1.106l1.838-1.106a11.954 11.954 0 005.212-6.603a11.954 11.954 0 00.583-3.606a11.357 11.357 0 00-1.573-5.344z" />
+            </svg>
+            <span>SESIÓN INICIADA</span>
+        `;
+        btnAcceso.onclick = logout;
+    } else if (btnAcceso) {
+        btnAcceso.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+        btnAcceso.classList.add('bg-slate-800', 'hover:bg-indigo-600');
+        btnAcceso.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span>ACCESO</span>
+        `;
+        btnAcceso.onclick = () => toggleModal('loginModal');
+    }
+}
+
+function logout() {
+    if (confirm('¿CERRAR SESIÓN?')) {
+        localStorage.removeItem('userRole');
+        actualizarInterfaz();
+        const iframe = document.querySelector('iframe');
+        iframe.src = iframe.src;
+    }
+}
+
+// Ejecutar al cargar la página para mantener el estado
+window.onload = actualizarInterfaz;
+
+
+        const urlCsvPublico = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT2wC5BbuNpHTeFiNiZ1otA84P0tmLz61t-ZcEY-SpYvQt9fDXS1FQsYBjGg_LKWxzK_3uKy_r1PcpS/pub?gid=0&single=true&output=csv";
+
+        let datosPozosCargados = [];
+
+        function cargarPuntosDeCampo() {
+            fetch(urlCsvPublico)
+                .then(response => response.text())
+                .then(csvText => {
+                    datosPozosCargados = csvText.trim().split('\n').slice(1);
+                });
+        }
+
+        //funcion mapa
+        function enviarPozosAlMapa() {
+            const destino = document.querySelector('iframe').contentWindow;
+
+            datosPozosCargados.forEach(fila => {
+                const col = fila.split(',');
+                if (col.length < 9) return;
+
+                // Limpieza y unión de coordenadas
+                const lat = parseFloat((col[4] + "." + col[5]).replace(/"/g, ''));
+                const lon = parseFloat((col[6] + "." + col[7]).replace(/"/g, ''));
+
+                if (!isNaN(lat) && !isNaN(lon)) {
+                    destino.postMessage({
+                        tipo: 'NUEVO_PUNTO',
+                        lat: lat,
+                        lon: lon,
+                        info: `<b>${col[2]}</b><br>Nivel: ${col[8]}m`
+                    }, '*');
+                }
+            });
+        }
+
+        cargarPuntosDeCampo();
+        window.addEventListener('message', (e) => {
+            if (e.data === 'MAPA_LISTO') {
+                enviarPozosAlMapa();
             }
         });
-        resetLabels([layer_Pozos_4]);
-        map.on("zoomend", function(){
-            resetLabels([layer_Pozos_4]);
-        });
-        map.on("layeradd", function(){
-            resetLabels([layer_Pozos_4]);
-        });
-        map.on("layerremove", function(){
-            resetLabels([layer_Pozos_4]);
-        });
-        </script>        
-    </body>
+    </script>
+
+</body>
+
 </html>
