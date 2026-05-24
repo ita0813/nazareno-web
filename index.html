@@ -73,10 +73,10 @@
         </div>
     </header>
 
-    
 
 
-<section class="py-6 px-4 max-w-7xl mx-auto">
+
+    <section class="py-6 px-4 max-w-7xl mx-auto">
         <div class="flex flex-col lg:grid lg:grid-cols-5 gap-6 lg:gap-10">
             <div class="lg:col-span-2 flex flex-col justify-center">
                 <h2 class="text-3xl font-bold text-slate-800">Delimitación y Discretización</h2>
@@ -123,10 +123,10 @@
 
 
             <div class="lg:col-span-3 h-[400px] md:h-[520px] w-full overflow-hidden rounded-2xl relative">
-    <div class="w-full h-full shadow-inner border border-slate-200">
-        <iframe src="mapa_qgis/index.html" class="w-full h-full border-0 absolute inset-0"></iframe>
-    </div>
-</div>
+                <div class="w-full h-full shadow-inner border border-slate-200">
+                    <iframe src="mapa_qgis/index.html" class="w-full h-full border-0 absolute inset-0"></iframe>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -137,13 +137,14 @@
 
         // Función para el GPS
         function obtenerGPS() {
-            const status = document.getElementById('coords-status');
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition((pos) => {
-                    latCapturada = pos.coords.latitude;
-                    lonCapturada = pos.coords.longitude;
-                    status.innerText = `GPS: ${latCapturada.toFixed(5)}, ${lonCapturada.toFixed(5)}`;
-                    alert("¡Ubicación capturada!");
+                    const lat = pos.coords.latitude;
+                    const lon = pos.coords.longitude;
+
+                    document.getElementById('form-latitud').value = lat.toFixed(6);
+                    document.getElementById('form-longitud').value = lon.toFixed(6);
+
                 });
             } else {
                 alert("Tu navegador no soporta GPS.");
@@ -157,8 +158,8 @@
                 titular: document.getElementById('form-titular').value,
                 uso: document.getElementById('form-uso').value,
                 nivel_estatico: document.getElementById('form-nivel').value,
-                latitud: latCapturada,
-                longitud: lonCapturada,
+                latitud: document.getElementById('form-latitud').value,
+                longitud: document.getElementById('form-longitud').value,
                 id_pozo: "Nuevo_Campo",
                 estado: "Operando",
                 observaciones: "Capturado desde móvil",
@@ -178,15 +179,12 @@
             actualizarInterfaz();
         };
 
-        // MODIFICACIÓN: Ahora recibe un "id" para saber qué modal abrir/cerrar
         function toggleModal(modalId) {
-            // Si no pasas ID (como en tu botón de cancelar), por defecto usa el de login
             const id = modalId || 'loginModal';
             const modal = document.getElementById(id);
 
             if (modal) {
                 modal.classList.toggle('hidden');
-                // Si es el de login, limpiamos la clave al cerrar
                 if (id === 'loginModal' && modal.classList.contains('hidden')) {
                     document.getElementById('adminPass').value = "";
                 }
@@ -195,10 +193,9 @@
 
         function checkLogin() {
             const pass = document.getElementById('adminPass').value;
-            // Tu clave personalizada
             if (pass === 'ciidir2026') {
                 localStorage.setItem('userRole', 'superuser');
-                toggleModal('loginModal'); // Cerramos específicamente el login
+                toggleModal('loginModal'); 
                 actualizarInterfaz();
                 const iframe = document.querySelector('iframe');
                 iframe.src = iframe.src;
@@ -210,7 +207,6 @@
 
         function actualizarInterfaz() {
             const role = localStorage.getItem('userRole');
-            // Buscamos el botón de ACCESO (es el segundo en tu HTML actual)
             const btnAcceso = document.querySelector('button[onclick*="loginModal"]');
 
             if (role === 'superuser' && btnAcceso) {
@@ -257,8 +253,9 @@
             fetch(urlCsvPublico)
                 .then(response => response.text())
                 .then(csvText => {
-                    datosPozosCargados = csvText.trim().split('\n').slice(1);
-                });
+                    datosPozosCargados = csvText.trim().split('\n').filter(linea => linea.trim() !== '').slice(1);
+                })
+                .catch(err => console.error("Error cargando el CSV:", err));
         }
 
         //funcion mapa
@@ -266,24 +263,28 @@
             const destino = document.querySelector('iframe').contentWindow;
 
             datosPozosCargados.forEach(fila => {
-                const col = fila.split(',');
-                if (col.length < 9) return;
+                const col = fila.split(',').map(celda => celda.replace(/^"|"$/g, '').trim());
 
-                // Limpieza y unión de coordenadas
-                const lat = parseFloat((col[4] + "." + col[5]).replace(/"/g, ''));
-                const lon = parseFloat((col[6] + "." + col[7]).replace(/"/g, ''));
+                if (col.length < 6) return;
+
+                // Ahora los índices están limpios de comillas
+                const lat = parseFloat(col[4]);
+                const lon = parseFloat(col[5]);
+                const titular = col[2] || 'Sin Titular';
+                const nivelEstatico = col[6] || 'N/A';
 
                 if (!isNaN(lat) && !isNaN(lon)) {
                     destino.postMessage({
                         tipo: 'NUEVO_PUNTO',
                         lat: lat,
                         lon: lon,
-                        info: `<b>${col[2]}</b><br>Nivel: ${col[8]}m`
+                        info: `<b>Titular: ${titular}</b><br>Nivel Estático: ${nivelEstatico}m`
                     }, '*');
+                } else {
+                    console.log("Error al parsear coordenadas de la fila:", fila);
                 }
             });
         }
-
         cargarPuntosDeCampo();
         window.addEventListener('message', (e) => {
             if (e.data === 'MAPA_LISTO') {
@@ -292,7 +293,7 @@
         });
     </script>
 
-<div id="loginModal"
+    <div id="loginModal"
         class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-md rounded-3xl shadow-xl overflow-hidden border border-slate-200 relative">
             <div class="p-8">
@@ -345,6 +346,19 @@
                     Ubicación GPS
                 </button>
 
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Latitud</label>
+                        <input type="number" step="any" id="form-latitud" placeholder="17.0123"
+                            class="mt-1 block w-full bg-slate-50 border-slate-200 rounded-xl p-3 text-slate-700 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none border transition-all text-xs">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Longitud</label>
+                        <input type="number" step="any" id="form-longitud" placeholder="-96.7456"
+                            class="mt-1 block w-full bg-slate-50 border-slate-200 rounded-xl p-3 text-slate-700 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none border transition-all text-xs">
+                    </div>
+                </div>
+
                 <div class="space-y-4 pt-2">
                     <div>
                         <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Titular del Pozo</label>
@@ -361,7 +375,7 @@
                         </select>
                     </div>
                     <div>
-                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Nivel Estático</label>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Profundidad</label>
                         <div class="relative">
                             <input type="number" id="form-nivel"
                                 class="mt-1 block w-full bg-slate-50 border-slate-200 rounded-xl p-3 text-slate-700 outline-none border focus:bg-white transition-all">
