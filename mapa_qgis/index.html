@@ -1080,14 +1080,35 @@
                         fillOpacity: 0.95,
                         pane: 'markerPane'
                     }),
-                    // Qué se muestra al hacer clic en cada pozo
-                    onEachFeature: (feature, layer) => {
+                                        onEachFeature: (feature, layer) => {
                         const p = feature.properties;
-                        layer.bindPopup(
+                        const encabezado =
                             `<b>${p.codigo}</b> ${p.nombre || ''}<br>` +
                             `Uso: ${p.uso || 'Sin dato'}<br>` +
-                            `Fuente: ${p.fuente} (${p.tipo_fuente})`
-                        );
+                            `Fuente: ${p.fuente} (${p.tipo_fuente})`;
+
+                        layer.bindPopup(encabezado + '<br><i>Cargando mediciones…</i>');
+
+                        // Cuando se abre el popup, pedir las mediciones de ese pozo
+                        layer.on('popupopen', () => {
+                            fetch(`/api/pozos/${p.id_pozo}/mediciones`)
+                                .then(respuesta => respuesta.json())
+                                .then(mediciones => {
+                                    let html = encabezado + '<hr><b>Mediciones</b><br>';
+                                    if (mediciones.length === 0) html += 'Sin mediciones';
+                                    mediciones.forEach(m => {
+                                        const fecha = new Date(m.fecha_hora).toLocaleDateString('es-MX');
+                                        const nivel = m.profundidad_nivel_m !== null
+                                            ? m.profundidad_nivel_m + ' m'
+                                            : '—';
+                                        html += `${fecha}: ${nivel} (${m.condicion})<br>`;
+                                    });
+                                    layer.setPopupContent(html);
+                                })
+                                .catch(() => {
+                                    layer.setPopupContent(encabezado + '<br>No se pudieron cargar las mediciones');
+                                });
+                        });
                     }
                 }).addTo(map);
 
