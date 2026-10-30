@@ -68,6 +68,13 @@
                     </svg>
                     <span>ACCESO</span>
                 </button>
+                <button onclick="toggleHerramientaMedicion()" id="btn-medicion"
+    class="flex items-center space-x-2 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-amber-200 shadow-sm">
+    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    </svg>
+    <span>MEDIR</span>
+</button>
             </div>
 
         </div>
@@ -118,6 +125,17 @@
 
                         </tbody>
                     </table>
+                    <!-- PANEL DE RESULTADOS DE MEDICIÓN ESPACIAL -->
+<div id="panel-medicion" class="hidden bg-amber-50 p-4 rounded-2xl border border-amber-200 text-xs text-amber-900 mt-4 transition-all shadow-sm">
+    <div class="flex justify-between items-center mb-1">
+        <span class="font-black uppercase tracking-wider text-[10px] text-amber-700">Herramienta de Medición Espacial</span>
+        <button onclick="toggleHerramientaMedicion()" class="text-amber-600 font-bold hover:text-amber-900">&times;</button>
+    </div>
+    <p class="text-[11px] mb-2 text-amber-800">Haz clic en 2 o más puntos sobre el mapa para calcular la distancia lineal o de flujo.</p>
+    <div class="bg-white p-3 rounded-xl border border-amber-200 text-center font-black text-amber-900 text-sm shadow-inner" id="resultado-medida">
+        Haz clic en el mapa para iniciar...
+    </div>
+</div>
                 </div>
             </div>
 
@@ -130,10 +148,10 @@
         </div>
     </section>
 
-    <script>
-
+   <script>
         let latCapturada = "";
         let lonCapturada = "";
+        let medicionActiva = false;
 
         // Función para el GPS
         function obtenerGPS() {
@@ -144,7 +162,6 @@
 
                     document.getElementById('form-latitud').value = lat.toFixed(6);
                     document.getElementById('form-longitud').value = lon.toFixed(6);
-
                 });
             } else {
                 alert("Tu navegador no soporta GPS.");
@@ -175,9 +192,6 @@
                 alert("Pozo guardado");
             });
         }
-        window.onload = function () {
-            actualizarInterfaz();
-        };
 
         function toggleModal(modalId) {
             const id = modalId || 'loginModal';
@@ -241,9 +255,29 @@
             }
         }
 
-        // Ejecutar al cargar la página para mantener el estado
-        window.onload = actualizarInterfaz;
+        // FUNCIÓN QUE FALTABA: ACTIVAR/DESACTIVAR MEDICIÓN
+        function toggleHerramientaMedicion() {
+            medicionActiva = !medicionActiva;
+            const panel = document.getElementById('panel-medicion');
+            const btn = document.getElementById('btn-medicion');
 
+            if (medicionActiva) {
+                panel.classList.remove('hidden');
+                btn.classList.remove('bg-amber-50', 'text-amber-700');
+                btn.classList.add('bg-amber-500', 'text-white');
+                document.getElementById('resultado-medida').innerText = "Modo Medición Activo: Haz clic en el primer punto...";
+            } else {
+                panel.classList.add('hidden');
+                btn.classList.remove('bg-amber-500', 'text-white');
+                btn.classList.add('bg-amber-50', 'text-amber-700');
+            }
+
+            const iframe = document.querySelector('iframe').contentWindow;
+            iframe.postMessage({ 
+                tipo: 'MODO_MEDICION', 
+                activo: medicionActiva 
+            }, '*');
+        }
 
         const urlCsvPublico = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT2wC5BbuNpHTeFiNiZ1otA84P0tmLz61t-ZcEY-SpYvQt9fDXS1FQsYBjGg_LKWxzK_3uKy_r1PcpS/pub?gid=0&single=true&output=csv";
 
@@ -254,20 +288,21 @@
                 .then(response => response.text())
                 .then(csvText => {
                     datosPozosCargados = csvText.trim().split('\n').filter(linea => linea.trim() !== '').slice(1);
+                    enviarPozosAlMapa();
                 })
                 .catch(err => console.error("Error cargando el CSV:", err));
         }
 
-        //funcion mapa
         function enviarPozosAlMapa() {
-            const destino = document.querySelector('iframe').contentWindow;
+            const iframeEl = document.querySelector('iframe');
+            if (!iframeEl || !iframeEl.contentWindow) return;
+            const destino = iframeEl.contentWindow;
 
             datosPozosCargados.forEach(fila => {
                 const col = fila.split(',').map(celda => celda.replace(/^"|"$/g, '').trim());
 
                 if (col.length < 6) return;
 
-                // Ahora los índices están limpios de comillas
                 const lat = parseFloat(col[4]);
                 const lon = parseFloat(col[5]);
                 const titular = col[2] || 'Sin Titular';
@@ -280,19 +315,28 @@
                         lon: lon,
                         info: `<b>Titular: ${titular}</b><br>Nivel Estático: ${nivelEstatico}m`
                     }, '*');
-                } else {
-                    console.log("Error al parsear coordenadas de la fila:", fila);
                 }
             });
         }
-        cargarPuntosDeCampo();
+
+        window.onload = function () {
+            actualizarInterfaz();
+            cargarPuntosDeCampo();
+        };
+
         window.addEventListener('message', (e) => {
             if (e.data === 'MAPA_LISTO') {
                 enviarPozosAlMapa();
+            } else if (e.data && e.data.tipo === 'DISTANCIA_CALCULADA') {
+                const distKm = e.data.distancia;
+                const distM = (distKm * 1000).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+                document.getElementById('resultado-medida').innerHTML = `
+                    <span class="text-lg font-black text-amber-700">${distKm} km</span> 
+                    <span class="text-xs text-slate-500 block">(${distM} metros)</span>
+                `;
             }
         });
     </script>
-
     <div id="loginModal"
         class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-md rounded-3xl shadow-xl overflow-hidden border border-slate-200 relative">
@@ -395,5 +439,90 @@
 
 
 </body>
+<script>
+    // --- LÓGICA DE MEDICIÓN ESPACIAL INTEGRADA A QGIS2WEB ---
+    let modoMedicion = false;
+    let puntosMedicion = [];
+    let lineaMedicion = null;
+    let marcadoresMedicion = [];
 
+    // Función auxiliar para obtener el objeto del mapa de QGIS/Leaflet
+    function obtenerObjetoMapa() {
+        if (typeof map !== 'undefined') return map;
+        if (typeof map_ !== 'undefined') return map_;
+        if (window.map) return window.map;
+        return null;
+    }
+
+    // Escuchar la activación del modo medición desde la ventana principal
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.tipo === 'MODO_MEDICION') {
+            modoMedicion = e.data.activo;
+            limpiarMedicion();
+        }
+    });
+
+    // Registrar el evento de clic de manera segura cuando el mapa esté listo
+    function inicializarMedicion() {
+        const mapa = obtenerObjetoMapa();
+        if (!mapa) {
+            setTimeout(inicializarMedicion, 300);
+            return;
+        }
+
+        mapa.on('click', function(e) {
+            if (!modoMedicion) return;
+
+            const latlng = e.latlng;
+            puntosMedicion.push(latlng);
+
+            // Marcador en el punto seleccionado
+            const marker = L.circleMarker(latlng, {
+                radius: 6,
+                color: '#b45309',
+                fillColor: '#f59e0b',
+                fillOpacity: 1
+            }).addTo(mapa);
+            marcadoresMedicion.push(marker);
+
+            // Trazar línea y calcular distancia al acumular 2 o más puntos
+            if (puntosMedicion.length >= 2) {
+                if (lineaMedicion) {
+                    mapa.removeLayer(lineaMedicion);
+                }
+
+                lineaMedicion = L.polyline(puntosMedicion, {
+                    color: '#d97706',
+                    weight: 4,
+                    dashArray: '6, 8'
+                }).addTo(mapa);
+
+                let distanciaTotalMetros = 0;
+                for (let i = 0; i < puntosMedicion.length - 1; i++) {
+                    distanciaTotalMetros += puntosMedicion[i].distanceTo(puntosMedicion[i + 1]);
+                }
+
+                const distanciaKm = (distanciaTotalMetros / 1000).toFixed(2);
+
+                window.parent.postMessage({
+                    tipo: 'DISTANCIA_CALCULADA',
+                    distancia: distanciaKm
+                }, '*');
+            }
+        });
+    }
+
+    function limpiarMedicion() {
+        const mapa = obtenerObjetoMapa();
+        puntosMedicion = [];
+        if (lineaMedicion && mapa) mapa.removeLayer(lineaMedicion);
+        if (mapa) {
+            marcadoresMedicion.forEach(m => mapa.removeLayer(m));
+        }
+        marcadoresMedicion = [];
+    }
+
+    // Iniciar la escucha del mapa
+    inicializarMedicion();
+</script>
 </html>

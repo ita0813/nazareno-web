@@ -1064,7 +1064,48 @@
             }
         });
 
+        fetch('/api/pozos')
+            .then(respuesta => {
+                if (!respuesta.ok) throw new Error('Error del servidor: ' + respuesta.status);
+                return respuesta.json();
+            })
+            .then(geojson => {
+                const capaPozosBD = L.geoJSON(geojson, {
+                    // Cómo se dibuja cada pozo: un círculo azul
+                    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                        radius: 8,
+                        fillColor: '#1d6e8c',
+                        color: '#ffffff',
+                        weight: 2,
+                        fillOpacity: 0.95,
+                        pane: 'markerPane'
+                    }),
+                    // Qué se muestra al hacer clic en cada pozo
+                    onEachFeature: (feature, layer) => {
+                        const p = feature.properties;
+                        layer.bindPopup(
+                            `<b>${p.codigo}</b> ${p.nombre || ''}<br>` +
+                            `Uso: ${p.uso || 'Sin dato'}<br>` +
+                            `Fuente: ${p.fuente} (${p.tipo_fuente})`
+                        );
+                    }
+                }).addTo(map);
+
+                console.log('Pozos cargados desde la base de datos:', geojson.features.length);
+            })
+            .catch(error => {
+                console.error('No se pudieron cargar los pozos de la base de datos:', error);
+            });
+
     </script>
+
+
+
+
+
+
+
+
 </body>
 
 </html>
