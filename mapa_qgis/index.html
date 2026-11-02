@@ -1102,6 +1102,7 @@
                                             ? m.profundidad_nivel_m + ' m'
                                             : '—';
                                         html += `${fecha}: ${nivel} (${m.condicion})<br>`;
+                                        if (m.alerta) html += `<span style="color:#b45309">⚠ Revisar: ${m.alerta}</span><br>`;
                                     });
                                     layer.setPopupContent(html);
                                 })

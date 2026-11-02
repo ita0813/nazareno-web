@@ -39,7 +39,7 @@ app.post('/api/login', async (req, res) => {
     const usuario = resultado.rows[0];
 
     const valida = usuario && usuario.activo &&
-                   await bcrypt.compare(contrasena, usuario.contrasena_hash);
+      await bcrypt.compare(contrasena, usuario.contrasena_hash);
 
     if (!valida) {
       return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
@@ -164,7 +164,7 @@ app.get('/api/pozos/:id/mediciones', async (req, res) => {
 
   try {
     const resultado = await pool.query(
-      `SELECT m.fecha_hora, m.condicion, m.profundidad_nivel_m, m.metodo,
+      `SELECT m.fecha_hora, m.condicion, m.profundidad_nivel_m, m.metodo, m.alerta,
               c.nombre AS campana
        FROM medicion m
        LEFT JOIN campana c ON c.id_campana = m.id_campana
@@ -205,6 +205,8 @@ app.get('/api/admin/usuarios', requiereRol('administrador'), async (req, res) =>
     res.status(500).json({ error: 'Error del servidor' });
   }
 });
+
+const UMBRAL_CAMBIO_NIVEL_M = 10;
 // Guardar una medición: solo con sesión iniciada
 app.post('/api/mediciones', requiereSesion, async (req, res) => {
   const {
@@ -236,27 +238,60 @@ app.post('/api/mediciones', requiereSesion, async (req, res) => {
     return res.status(400).json({ errores });
   }
 
-  // 2. Guardar
   try {
+    // Regla: el pozo debe existir y el nivel no puede ser más hondo que el pozo
+    const pozoRes = await pool.query(
+      'SELECT profundidad_total_m FROM pozo WHERE id_pozo = $1', [id_pozo]
+    );
+    if (pozoRes.rowCount === 0) {
+      return res.status(400).json({ errores: ['El pozo no existe'] });
+    }
+    const profundidadTotal = pozoRes.rows[0].profundidad_total_m;
+    if (conNivel && profundidadTotal !== null && profundidad_nivel_m > Number(profundidadTotal)) {
+      return res.status(400).json({
+        errores: [`La profundidad del nivel (${profundidad_nivel_m} m) es mayor que la profundidad total del pozo (${profundidadTotal} m)`]
+      });
+    }
+
+    // Alerta: cambio grande respecto a la medición estática anterior del mismo pozo
+    let alerta = null;
+    if (condicion === 'estatico') {
+      const anteriorRes = await pool.query(
+        `SELECT profundidad_nivel_m FROM medicion
+         WHERE id_pozo = $1 AND condicion = 'estatico' AND fecha_hora < $2
+         ORDER BY fecha_hora DESC LIMIT 1`,
+        [id_pozo, fecha]
+      );
+      if (anteriorRes.rowCount > 0) {
+        const anterior = Number(anteriorRes.rows[0].profundidad_nivel_m);
+        const diferencia = Math.abs(profundidad_nivel_m - anterior);
+        if (diferencia > UMBRAL_CAMBIO_NIVEL_M) {
+          alerta = `Cambio de ${diferencia.toFixed(2)} m respecto a la medición estática anterior (${anterior} m). Revisar.`;
+        }
+      }
+    }
+
     const resultado = await pool.query(
       `INSERT INTO medicion (id_pozo, id_campana, id_usuario, id_fuente, fecha_hora,
-                             profundidad_nivel_m, condicion, horas_sin_bombeo, metodo, observaciones)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                             profundidad_nivel_m, condicion, horas_sin_bombeo, metodo,
+                             observaciones, alerta)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id_medicion`,
       [
         id_pozo,
         id_campana ?? null,
-        req.session.usuario.id,        // quién mide: lo sabe el servidor, no el navegador
+        req.session.usuario.id,
         id_fuente,
         fecha,
         conNivel ? profundidad_nivel_m : null,
         condicion,
         horas_sin_bombeo ?? null,
         metodo ?? null,
-        observaciones ?? null
+        observaciones ?? null,
+        alerta
       ]
     );
-    res.status(201).json({ mensaje: 'Medición guardada', id_medicion: resultado.rows[0].id_medicion });
+    res.status(201).json({ mensaje: 'Medición guardada', id_medicion: resultado.rows[0].id_medicion, alerta });
   } catch (error) {
     if (error.code === '23503') {
       return res.status(400).json({ errores: ['El pozo, la campaña o la fuente no existen'] });

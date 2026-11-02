@@ -262,9 +262,13 @@
                     return;
                 }
 
-                mensaje.className = 'text-sm text-emerald-600';
-                mensaje.textContent = `Medición guardada (número ${resultado.id_medicion}).`;
-                document.getElementById('cap-profundidad').value = '';
+                if (resultado.alerta) {
+                    mensaje.className = 'text-sm text-amber-600';
+                    mensaje.textContent = `Medición guardada (número ${resultado.id_medicion}), con una alerta: ${resultado.alerta}`;
+                } else {
+                    mensaje.className = 'text-sm text-emerald-600';
+                    mensaje.textContent = `Medición guardada (número ${resultado.id_medicion}).`;
+                } document.getElementById('cap-profundidad').value = '';
                 document.getElementById('cap-observaciones').value = '';
             } catch (error) {
                 mensaje.className = 'text-sm text-red-600';
