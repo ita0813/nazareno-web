@@ -177,6 +177,21 @@ app.get('/api/pozos/:id/mediciones', async (req, res) => {
     console.error(error);
     res.status(500).json({ error: 'No se pudieron obtener las mediciones', mensaje: error.message });
   }
+})
+
+// Catálogos para el formulario de captura: solo con sesión
+app.get('/api/catalogos', requiereSesion, async (req, res) => {
+  try {
+    const [pozos, campanas, fuentes] = await Promise.all([
+      pool.query('SELECT id_pozo, codigo_interno, nombre FROM pozo ORDER BY codigo_interno'),
+      pool.query('SELECT id_campana, nombre FROM campana ORDER BY fecha_inicio DESC'),
+      pool.query("SELECT id_fuente, nombre FROM fuente WHERE tipo = 'campo' ORDER BY id_fuente DESC")
+    ]);
+    res.json({ pozos: pozos.rows, campanas: campanas.rows, fuentes: fuentes.rows });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
 });
 
 app.get('/api/admin/usuarios', requiereRol('administrador'), async (req, res) => {
@@ -188,6 +203,69 @@ app.get('/api/admin/usuarios', requiereRol('administrador'), async (req, res) =>
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error del servidor' });
+  }
+});
+// Guardar una medición: solo con sesión iniciada
+app.post('/api/mediciones', requiereSesion, async (req, res) => {
+  const {
+    id_pozo, id_campana, id_fuente, fecha_hora,
+    profundidad_nivel_m, condicion, horas_sin_bombeo, metodo, observaciones
+  } = req.body || {};
+
+  // 1. Revisar los datos antes de tocar la base de datos
+  const errores = [];
+  const CONDICIONES = ['estatico', 'dinamico', 'seco', 'sin_acceso'];
+
+  if (!Number.isInteger(id_pozo)) errores.push('Falta el pozo');
+  if (!Number.isInteger(id_fuente)) errores.push('Falta la fuente');
+  if (!CONDICIONES.includes(condicion)) errores.push('La condición no es válida');
+
+  const fecha = new Date(fecha_hora);
+  if (isNaN(fecha)) errores.push('La fecha no es válida');
+  else if (fecha > new Date()) errores.push('La fecha no puede estar en el futuro');
+
+  const conNivel = condicion === 'estatico' || condicion === 'dinamico';
+  if (conNivel && !(typeof profundidad_nivel_m === 'number' && profundidad_nivel_m >= 0)) {
+    errores.push('Escribe la profundidad del nivel (un número mayor o igual a 0)');
+  }
+  if (!conNivel && profundidad_nivel_m != null) {
+    errores.push('Un pozo seco o sin acceso no lleva profundidad');
+  }
+
+  if (errores.length > 0) {
+    return res.status(400).json({ errores });
+  }
+
+  // 2. Guardar
+  try {
+    const resultado = await pool.query(
+      `INSERT INTO medicion (id_pozo, id_campana, id_usuario, id_fuente, fecha_hora,
+                             profundidad_nivel_m, condicion, horas_sin_bombeo, metodo, observaciones)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id_medicion`,
+      [
+        id_pozo,
+        id_campana ?? null,
+        req.session.usuario.id,        // quién mide: lo sabe el servidor, no el navegador
+        id_fuente,
+        fecha,
+        conNivel ? profundidad_nivel_m : null,
+        condicion,
+        horas_sin_bombeo ?? null,
+        metodo ?? null,
+        observaciones ?? null
+      ]
+    );
+    res.status(201).json({ mensaje: 'Medición guardada', id_medicion: resultado.rows[0].id_medicion });
+  } catch (error) {
+    if (error.code === '23503') {
+      return res.status(400).json({ errores: ['El pozo, la campaña o la fuente no existen'] });
+    }
+    if (error.code === '23514') {
+      return res.status(400).json({ errores: ['El dato no cumple las reglas de la base de datos'] });
+    }
+    console.error(error);
+    res.status(500).json({ errores: ['Error del servidor'] });
   }
 });
 
