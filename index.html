@@ -69,12 +69,13 @@
                     <span>ACCESO</span>
                 </button>
                 <button onclick="toggleHerramientaMedicion()" id="btn-medicion"
-    class="flex items-center space-x-2 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-amber-200 shadow-sm">
-    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-    </svg>
-    <span>MEDIR</span>
-</button>
+                    class="flex items-center space-x-2 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-amber-200 shadow-sm">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    <span>MEDIR</span>
+                </button>
             </div>
 
         </div>
@@ -126,16 +127,21 @@
                         </tbody>
                     </table>
                     <!-- PANEL DE RESULTADOS DE MEDICIÓN ESPACIAL -->
-<div id="panel-medicion" class="hidden bg-amber-50 p-4 rounded-2xl border border-amber-200 text-xs text-amber-900 mt-4 transition-all shadow-sm">
-    <div class="flex justify-between items-center mb-1">
-        <span class="font-black uppercase tracking-wider text-[10px] text-amber-700">Herramienta de Medición Espacial</span>
-        <button onclick="toggleHerramientaMedicion()" class="text-amber-600 font-bold hover:text-amber-900">&times;</button>
-    </div>
-    <p class="text-[11px] mb-2 text-amber-800">Haz clic en 2 o más puntos sobre el mapa para calcular la distancia lineal o de flujo.</p>
-    <div class="bg-white p-3 rounded-xl border border-amber-200 text-center font-black text-amber-900 text-sm shadow-inner" id="resultado-medida">
-        Haz clic en el mapa para iniciar...
-    </div>
-</div>
+                    <div id="panel-medicion"
+                        class="hidden bg-amber-50 p-4 rounded-2xl border border-amber-200 text-xs text-amber-900 mt-4 transition-all shadow-sm">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-black uppercase tracking-wider text-[10px] text-amber-700">Herramienta de
+                                Medición Espacial</span>
+                            <button onclick="toggleHerramientaMedicion()"
+                                class="text-amber-600 font-bold hover:text-amber-900">&times;</button>
+                        </div>
+                        <p class="text-[11px] mb-2 text-amber-800">Haz clic en 2 o más puntos sobre el mapa para
+                            calcular la distancia lineal o de flujo.</p>
+                        <div class="bg-white p-3 rounded-xl border border-amber-200 text-center font-black text-amber-900 text-sm shadow-inner"
+                            id="resultado-medida">
+                            Haz clic en el mapa para iniciar...
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -148,7 +154,7 @@
         </div>
     </section>
 
-   <script>
+    <script>
         let latCapturada = "";
         let lonCapturada = "";
         let medicionActiva = false;
@@ -205,54 +211,70 @@
             }
         }
 
-        function checkLogin() {
-            const pass = document.getElementById('adminPass').value;
-            if (pass === 'ciidir2026') {
-                localStorage.setItem('userRole', 'superuser');
-                toggleModal('loginModal'); 
-                actualizarInterfaz();
+        async function checkLogin() {
+            const correo = document.getElementById('adminCorreo').value.trim();
+            const contrasena = document.getElementById('adminPass').value;
+            const mensaje = document.getElementById('loginMensaje');
+            mensaje.textContent = '';
+
+            try {
+                const respuesta = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ correo, contrasena })
+                });
+                const datos = await respuesta.json();
+
+                if (!respuesta.ok) {
+                    mensaje.textContent = datos.error || 'No se pudo iniciar sesión';
+                    return;
+                }
+
+                document.getElementById('adminPass').value = '';
+                toggleModal('loginModal');
+                await actualizarInterfaz();
                 const iframe = document.querySelector('iframe');
                 iframe.src = iframe.src;
-                console.log("SESIÓN INICIADA");
-            } else {
-                alert('Clave incorrecta.');
+            } catch (error) {
+                mensaje.textContent = 'No hay conexión con el servidor';
             }
         }
 
-        function actualizarInterfaz() {
-            const role = localStorage.getItem('userRole');
-            const btnAcceso = document.querySelector('button[onclick*="loginModal"]');
+        async function actualizarInterfaz() {
+            let usuario = null;
+            try {
+                const respuesta = await fetch('/api/sesion');
+                usuario = (await respuesta.json()).usuario;
+            } catch (error) {
+                console.error('No se pudo consultar la sesión', error);
+            }
 
-            if (role === 'superuser' && btnAcceso) {
+            // El mapa todavía usa este dato para mostrar el titular.
+            // Solo cambia lo que se ve: la protección real está en el servidor.
+            if (usuario) localStorage.setItem('userRole', 'superuser');
+            else localStorage.removeItem('userRole');
+
+            const btnAcceso = document.querySelector('button[onclick*="loginModal"]');
+            if (!btnAcceso) return;
+
+            if (usuario) {
                 btnAcceso.classList.remove('bg-slate-800', 'hover:bg-indigo-600');
                 btnAcceso.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
-                btnAcceso.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04a11.357 11.357 0 00-1.573 5.344c0 1.258.204 2.468.583 3.606a11.954 11.954 0 005.212 6.603l1.838 1.106l1.838-1.106a11.954 11.954 0 005.212-6.603a11.954 11.954 0 00.583-3.606a11.357 11.357 0 00-1.573-5.344z" />
-            </svg>
-            <span>SESIÓN INICIADA</span>
-        `;
+                btnAcceso.innerHTML = `<span>${usuario.nombre.split(' ')[0].toUpperCase()} · SALIR</span>`;
                 btnAcceso.onclick = logout;
-            } else if (btnAcceso) {
+            } else {
                 btnAcceso.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
                 btnAcceso.classList.add('bg-slate-800', 'hover:bg-indigo-600');
-                btnAcceso.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-            <span>ACCESO</span>
-        `;
+                btnAcceso.innerHTML = `<span>ACCESO</span>`;
                 btnAcceso.onclick = () => toggleModal('loginModal');
             }
         }
-
-        function logout() {
-            if (confirm('¿CERRAR SESIÓN?')) {
-                localStorage.removeItem('userRole');
-                actualizarInterfaz();
-                const iframe = document.querySelector('iframe');
-                iframe.src = iframe.src;
-            }
+        async function logout() {
+            if (!confirm('¿Cerrar sesión?')) return;
+            await fetch('/api/logout', { method: 'POST' });
+            await actualizarInterfaz();
+            const iframe = document.querySelector('iframe');
+            iframe.src = iframe.src;
         }
 
         // FUNCIÓN QUE FALTABA: ACTIVAR/DESACTIVAR MEDICIÓN
@@ -273,9 +295,9 @@
             }
 
             const iframe = document.querySelector('iframe').contentWindow;
-            iframe.postMessage({ 
-                tipo: 'MODO_MEDICION', 
-                activo: medicionActiva 
+            iframe.postMessage({
+                tipo: 'MODO_MEDICION',
+                activo: medicionActiva
             }, '*');
         }
 
@@ -345,9 +367,13 @@
                     <p class="text-slate-500 text-sm font-bold uppercase tracking-widest">Ingresar Clave</p>
                 </div>
                 <div class="space-y-4">
+                    <input type="email" id="adminCorreo" autocomplete="username"
+                        class="w-full px-5 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-center"
+                        placeholder="correo@ejemplo.com">
                     <input type="password" id="adminPass"
                         class="w-full px-5 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-center tracking-[0.5em]"
                         placeholder="••••••••">
+                    <p id="loginMensaje" class="text-sm text-red-600 text-center"></p>
                     <button onclick="checkLogin()"
                         class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all transform active:scale-95">
                         ACCESO
@@ -455,7 +481,7 @@
     }
 
     // Escuchar la activación del modo medición desde la ventana principal
-    window.addEventListener('message', function(e) {
+    window.addEventListener('message', function (e) {
         if (e.data && e.data.tipo === 'MODO_MEDICION') {
             modoMedicion = e.data.activo;
             limpiarMedicion();
@@ -470,7 +496,7 @@
             return;
         }
 
-        mapa.on('click', function(e) {
+        mapa.on('click', function (e) {
             if (!modoMedicion) return;
 
             const latlng = e.latlng;
@@ -525,4 +551,5 @@
     // Iniciar la escucha del mapa
     inicializarMedicion();
 </script>
+
 </html>

@@ -1,10 +1,96 @@
 
+require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const app = express();
 const pool = require('./db');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
 const PUERTO = 3000;
 
-const path = require('path');
+app.use(express.json());
+
+// Sesiones: el servidor recuerda quién inició sesión
+app.use(session({
+  name: 'nazareno.sid',
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,                 // el JavaScript de la página no puede leerla
+    sameSite: 'lax',                // protege contra envíos desde otros sitios
+    secure: false,                  // cambiar a true cuando haya HTTPS en el servidor del IPN
+    maxAge: 8 * 60 * 60 * 1000      // la sesión dura 8 horas
+  }
+}));
+
+// Iniciar sesión
+app.post('/api/login', async (req, res) => {
+  const { correo, contrasena } = req.body || {};
+  if (!correo || !contrasena) {
+    return res.status(400).json({ error: 'Escribe tu correo y tu contraseña' });
+  }
+
+  try {
+    const resultado = await pool.query(
+      'SELECT id_usuario, nombre, rol, contrasena_hash, activo FROM usuario WHERE correo = $1',
+      [correo.trim().toLowerCase()]
+    );
+    const usuario = resultado.rows[0];
+
+    const valida = usuario && usuario.activo &&
+                   await bcrypt.compare(contrasena, usuario.contrasena_hash);
+
+    if (!valida) {
+      return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
+    }
+
+    // Crear una sesión nueva (evita que alguien reutilice una sesión anterior)
+    req.session.regenerate(error => {
+      if (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'No se pudo iniciar sesión' });
+      }
+      req.session.usuario = { id: usuario.id_usuario, nombre: usuario.nombre, rol: usuario.rol };
+      res.json({ mensaje: 'Sesión iniciada', usuario: req.session.usuario });
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+});
+
+function requiereSesion(req, res, next) {
+  if (!req.session.usuario) {
+    return res.status(401).json({ error: 'Debes iniciar sesión' });
+  }
+  next();
+}
+function requiereRol(rol) {
+  return (req, res, next) => {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: 'Debes iniciar sesión' });
+    }
+    if (req.session.usuario.rol !== rol) {
+      return res.status(403).json({ error: 'No tienes permiso para esta acción' });
+    }
+    next();
+  };
+}
+
+
+// ¿Quién tiene la sesión iniciada?
+app.get('/api/sesion', (req, res) => {
+  res.json({ usuario: req.session.usuario || null });
+});
+
+// Cerrar sesión
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('nazareno.sid');
+    res.json({ mensaje: 'Sesión cerrada' });
+  });
+});
 
 // Seguridad: nadie puede ver los archivos del servidor desde el navegador
 app.use('/servidor', (req, res) => {
@@ -90,6 +176,18 @@ app.get('/api/pozos/:id/mediciones', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'No se pudieron obtener las mediciones', mensaje: error.message });
+  }
+});
+
+app.get('/api/admin/usuarios', requiereRol('administrador'), async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      'SELECT id_usuario, nombre, correo, rol, activo, fecha_alta FROM usuario ORDER BY nombre'
+    );
+    res.json(resultado.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error del servidor' });
   }
 });
 
