@@ -37,14 +37,14 @@
             <div class="flex items-center gap-3 w-full md:w-auto">
                 <img src="cidir.jpg" alt="Logo CIDIR" class="h-16 md:h-20 w-auto object-contain">
 
-                <div class="border-l-2 border-slate-200 h-16 pl-3 md:pl-6 flex flex-col justify-center min-w-0">
+                <div class="border-l-2 border-slate-200 min-h-16 pl-3 md:pl-6 flex flex-col justify-center min-w-0">
                     <h1
                         class="text-xl md:text-3xl font-black text-slate-800 tracking-tighter uppercase leading-none truncate md:whitespace-normal">
                         Microcuenca Nazareno
                     </h1>
                     <p
                         class="text-[10px] md:text-sm font-bold text-indigo-600 uppercase tracking-wider md:tracking-[0.3em] mt-1 md:mt-2">
-                        Análisis Hidrológico y Modelamiento
+                        Gestión y monitoreo de información hidrogeológica
                     </p>
                 </div>
             </div>
@@ -111,16 +111,16 @@
                             </tr>
                             <tr>
                                 <td class="py-2 text-[11px] font-medium text-slate-600">Superficie (ha)</td>
-                                <td class="py-2 text-[11px] font-bold text-slate-900 text-right">2,703.02</td>
+                                <td class="py-2 text-[11px] font-bold text-slate-900 text-right">3,489.76</td>
                             </tr>
                             <tr>
                                 <td class="py-2 text-[11px] font-medium text-slate-600">Perímetro (km)</td>
-                                <td class="py-2 text-[11px] font-bold text-slate-900 text-right">38.72</td>
+                                <td class="py-2 text-[11px] font-bold text-slate-900 text-right">37.46</td>
                             </tr>
                             <tr>
                                 <td class="py-2 text-[11px] font-medium text-slate-600">Fuente</td>
-                                <td class="py-2 text-[10px] font-bold text-blue-700 text-right italic">CONAGUA-SIATL /
-                                    QGIS</td>
+                                <td class="py-2 text-[10px] font-bold text-blue-700 text-right italic">INEGI-SIATL /
+                                    PostGIS</td>
                             </tr>
 
 
@@ -159,21 +159,93 @@
         let lonCapturada = "";
         let medicionActiva = false;
 
-        // Función para el GPS
-        function obtenerGPS() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition((pos) => {
-                    const lat = pos.coords.latitude;
-                    const lon = pos.coords.longitude;
-
-                    document.getElementById('form-latitud').value = lat.toFixed(6);
-                    document.getElementById('form-longitud').value = lon.toFixed(6);
-                });
-            } else {
-                alert("Tu navegador no soporta GPS.");
-            }
+        // Abre la ventana de pozo nuevo
+        function abrirNuevoPozo() {
+            llenarSelect('pozo-fuente', catalogos.fuentes, 'id_fuente', f => f.nombre);
+            ['pozo-lat', 'pozo-lon', 'pozo-nombre', 'pozo-profundidad', 'pozo-brocal', 'pozo-repda', 'pozo-sgm']
+                .forEach(id => document.getElementById(id).value = '');
+            document.getElementById('pozo-uso').value = '';
+            document.getElementById('pozo-mensaje').textContent = '';
+            document.getElementById('pozo-gps-info').textContent = '';
+            toggleModal('formModal');
+            toggleModal('pozoModal');
         }
 
+        // Obtiene las coordenadas del GPS del teléfono
+        function gpsNuevoPozo() {
+            const info = document.getElementById('pozo-gps-info');
+            if (!navigator.geolocation) {
+                info.textContent = 'Este navegador no permite usar el GPS. Escribe las coordenadas.';
+                return;
+            }
+            info.textContent = 'Buscando ubicación…';
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    document.getElementById('pozo-lat').value = pos.coords.latitude.toFixed(6);
+                    document.getElementById('pozo-lon').value = pos.coords.longitude.toFixed(6);
+                    info.textContent = `Precisión aproximada: ±${Math.round(pos.coords.accuracy)} m`;
+                },
+                () => { info.textContent = 'No se obtuvo la ubicación. Revisa el permiso de ubicación o escribe las coordenadas.'; },
+                { enableHighAccuracy: true, timeout: 15000 }
+            );
+        }
+
+        // Manda el pozo nuevo al servidor
+        async function guardarPozo() {
+            const mensaje = document.getElementById('pozo-mensaje');
+            const boton = document.getElementById('pozo-guardar');
+            const valor = id => document.getElementById(id).value;
+            const numero = id => valor(id) === '' ? null : Number(valor(id));
+
+            const datos = {
+                latitud: numero('pozo-lat'),
+                longitud: numero('pozo-lon'),
+                nombre: valor('pozo-nombre').trim() || null,
+                uso: valor('pozo-uso') || null,
+                profundidad_total_m: numero('pozo-profundidad'),
+                altura_brocal_m: numero('pozo-brocal'),
+                clave_repda: valor('pozo-repda').trim() || null,
+                clave_sgm: valor('pozo-sgm').trim() || null,
+                id_fuente: Number(valor('pozo-fuente'))
+            };
+
+            boton.disabled = true;
+            mensaje.className = 'text-sm text-slate-500';
+            mensaje.textContent = 'Guardando…';
+
+            try {
+                const respuesta = await fetch('/api/pozos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(datos)
+                });
+                const resultado = await respuesta.json();
+
+                if (!respuesta.ok) {
+                    mensaje.className = 'text-sm text-red-600';
+                    mensaje.textContent = respuesta.status === 401
+                        ? 'Tu sesión terminó. Vuelve a iniciar sesión.'
+                        : (resultado.errores || ['No se pudo registrar']).join('. ');
+                    return;
+                }
+
+                // Listo: refrescar el mapa y volver al formulario de medición con el pozo nuevo elegido
+                catalogos = null;
+                const iframe = document.querySelector('iframe');
+                iframe.src = iframe.src;
+                toggleModal('pozoModal');
+                await abrirCaptura();
+                document.getElementById('cap-pozo').value = resultado.id_pozo;
+                const msgMedicion = document.getElementById('cap-mensaje');
+                msgMedicion.className = 'text-sm text-emerald-600';
+                msgMedicion.textContent = `Pozo ${resultado.codigo_interno} registrado. Ahora puedes capturar su medición.`;
+            } catch (error) {
+                mensaje.className = 'text-sm text-red-600';
+                mensaje.textContent = 'No hay conexión con el servidor.';
+            } finally {
+                boton.disabled = false;
+            }
+        }
         let catalogos = null;
 
         // Abre el formulario, solo si hay sesión iniciada
@@ -483,6 +555,10 @@
                     <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Pozo</label>
                     <select id="cap-pozo"
                         class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm"></select>
+                    <button type="button" onclick="abrirNuevoPozo()"
+                        class="text-xs text-indigo-600 font-bold mt-2 ml-1 hover:underline">
+                        + El pozo no está en la lista: registrar pozo nuevo
+                    </button>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -550,6 +626,103 @@
                 <button id="cap-guardar" onclick="guardarMedicion()"
                     class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 rounded-2xl shadow-xl transition-all text-sm tracking-widest uppercase disabled:opacity-50">
                     Guardar medición
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="pozoModal"
+        class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+        <div
+            class="bg-white w-full max-w-md rounded-3xl shadow-xl border border-slate-200 relative max-h-[90vh] overflow-y-auto">
+
+            <button onclick="toggleModal('pozoModal')"
+                class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 text-2xl leading-none">&times;</button>
+
+            <div class="px-6 py-5 border-b border-slate-200 text-center">
+                <p class="text-slate-800 text-xl font-bold">Registrar pozo nuevo</p>
+                <p class="text-xs text-slate-400 mt-1">El código (NAZ-…) se asigna automáticamente</p>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <button type="button" onclick="gpsNuevoPozo()"
+                    class="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all p-3 rounded-xl w-full font-bold border border-indigo-100 uppercase text-[11px]">
+                    Usar mi ubicación (GPS)
+                </button>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Latitud</label>
+                        <input type="number" step="any" id="pozo-lat" placeholder="17.0266"
+                            class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Longitud</label>
+                        <input type="number" step="any" id="pozo-lon" placeholder="-96.7276"
+                            class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                    </div>
+                </div>
+                <p id="pozo-gps-info" class="text-[11px] text-slate-400 -mt-2 ml-1"></p>
+
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Nombre local del pozo</label>
+                    <input type="text" id="pozo-nombre" placeholder="Ej. CBTIS"
+                        class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Uso del agua</label>
+                    <select id="pozo-uso"
+                        class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                        <option value="">Sin dato</option>
+                        <option value="Agrícola">Agrícola</option>
+                        <option value="Público urbano">Público urbano</option>
+                        <option value="Doméstico">Doméstico</option>
+                        <option value="Servicios">Servicios</option>
+                        <option value="Industrial">Industrial</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Profundidad total
+                            (m)</label>
+                        <input type="number" step="0.1" min="0" id="pozo-profundidad" placeholder="80"
+                            class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Altura del brocal
+                            (m)</label>
+                        <input type="number" step="0.01" min="0" id="pozo-brocal" placeholder="0.53"
+                            class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-400 -mt-2 ml-1">Brocal en metros: 53 cm = 0.53 m.</p>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Clave REPDA</label>
+                        <input type="text" id="pozo-repda" placeholder="Opcional"
+                            class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Clave SGM</label>
+                        <input type="text" id="pozo-sgm" placeholder="Opcional"
+                            class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Fuente</label>
+                    <select id="pozo-fuente"
+                        class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm"></select>
+                </div>
+
+                <p id="pozo-mensaje" class="text-sm"></p>
+
+                <button id="pozo-guardar" onclick="guardarPozo()"
+                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-xl transition-all text-sm tracking-widest uppercase disabled:opacity-50">
+                    Registrar pozo
                 </button>
             </div>
         </div>

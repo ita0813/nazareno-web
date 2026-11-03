@@ -304,6 +304,94 @@ app.post('/api/mediciones', requiereSesion, async (req, res) => {
   }
 });
 
+// Rectángulo aproximado del estado de Oaxaca
+const LIMITES_OAXACA = { latMin: 15.6, latMax: 18.7, lonMin: -98.6, lonMax: -93.8 };
+
+// Registrar un pozo nuevo: solo con sesión iniciada
+app.post('/api/pozos', requiereSesion, async (req, res) => {
+  const {
+    nombre, uso, clave_repda, clave_sgm,
+    latitud, longitud, profundidad_total_m, altura_brocal_m, id_fuente
+  } = req.body || {};
+
+  // 1. Revisar los datos
+  const errores = [];
+  const L = LIMITES_OAXACA;
+
+  if (typeof latitud !== 'number' || typeof longitud !== 'number') {
+    errores.push('Faltan las coordenadas');
+  } else if (latitud < L.latMin || latitud > L.latMax || longitud < L.lonMin || longitud > L.lonMax) {
+    errores.push('Las coordenadas están fuera de Oaxaca. Revisa que la latitud y la longitud no estén invertidas');
+  }
+  if (!Number.isInteger(id_fuente)) errores.push('Falta la fuente');
+  if (profundidad_total_m != null && !(profundidad_total_m > 0)) {
+    errores.push('La profundidad total debe ser mayor que 0');
+  }
+  if (altura_brocal_m != null && !(altura_brocal_m >= 0 && altura_brocal_m <= 3)) {
+    errores.push('La altura del brocal debe estar entre 0 y 3 m');
+  }
+
+  if (errores.length > 0) {
+    return res.status(400).json({ errores });
+  }
+
+  try {
+
+    // ¿Ya existe un pozo a menos de 15 m?
+    const cercano = await pool.query(
+      `SELECT codigo_interno, nombre FROM pozo
+       WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 15)
+       LIMIT 1`,
+      [longitud, latitud]
+    );
+    if (cercano.rowCount > 0) {
+      const p = cercano.rows[0];
+      return res.status(409).json({
+        errores: [`Ya existe un pozo a menos de 15 m: ${p.codigo_interno} ${p.nombre || ''}. Revisa si es el mismo`]
+      });
+    }
+
+    // 3. Calcular el siguiente código: NAZ-006, NAZ-007...
+    const siguiente = await pool.query(
+      `SELECT 'NAZ-' || LPAD((COALESCE(MAX(SUBSTRING(codigo_interno FROM 5)::int), 0) + 1)::text, 3, '0') AS codigo
+       FROM pozo WHERE codigo_interno ~ '^NAZ-[0-9]+$'`
+    );
+    const codigo = siguiente.rows[0].codigo;
+
+    // 4. Guardar
+    const resultado = await pool.query(
+      `INSERT INTO pozo (codigo_interno, nombre, uso, clave_repda, clave_sgm,
+                         profundidad_total_m, altura_brocal_m, geom, id_fuente, id_usuario_registro)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($8, $9), 4326), $10, $11)
+       RETURNING id_pozo, codigo_interno`,
+      [
+        codigo,
+        nombre?.trim() || null,
+        uso || null,
+        clave_repda?.trim() || null,
+        clave_sgm?.trim() || null,
+        profundidad_total_m ?? null,
+        altura_brocal_m ?? null,
+        longitud,
+        latitud,
+        id_fuente,
+        req.session.usuario.id
+      ]
+    );
+
+    res.status(201).json({ mensaje: 'Pozo registrado', ...resultado.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ errores: ['Ese código ya existe. Intenta de nuevo'] });
+    }
+    if (error.code === '23503') {
+      return res.status(400).json({ errores: ['La fuente no existe'] });
+    }
+    console.error(error);
+    res.status(500).json({ errores: ['Error del servidor'] });
+  }
+});
+
 app.listen(PUERTO, () => {
   console.log(`Servidor escuchando en http://localhost:${PUERTO}`);
 });

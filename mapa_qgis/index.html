@@ -1064,7 +1064,15 @@
             }
         });
 
+        const NOMBRES_CONDICION = {
+            estatico: 'Estático',
+            dinamico: 'En bombeo',
+            seco: 'Seco',
+            sin_acceso: 'Sin acceso'
+        };
+
         fetch('/api/pozos')
+
             .then(respuesta => {
                 if (!respuesta.ok) throw new Error('Error del servidor: ' + respuesta.status);
                 return respuesta.json();
@@ -1072,15 +1080,18 @@
             .then(geojson => {
                 const capaPozosBD = L.geoJSON(geojson, {
                     // Cómo se dibuja cada pozo: un círculo azul
-                    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-                        radius: 8,
-                        fillColor: '#1d6e8c',
-                        color: '#ffffff',
-                        weight: 2,
-                        fillOpacity: 0.95,
-                        pane: 'markerPane'
-                    }),
-                                        onEachFeature: (feature, layer) => {
+                    pointToLayer: (feature, latlng) => {
+                        const esCampo = feature.properties.tipo_fuente === 'campo';
+                        return L.circleMarker(latlng, {
+                            radius: esCampo ? 8 : 5,
+                            fillColor: esCampo ? '#1d6e8c' : '#9aa5ad',
+                            color: '#ffffff',
+                            weight: 2,
+                            fillOpacity: 0.95,
+                            pane: 'markerPane'
+                        });
+                    },
+                    onEachFeature: (feature, layer) => {
                         const p = feature.properties;
                         const encabezado =
                             `<b>${p.codigo}</b> ${p.nombre || ''}<br>` +
@@ -1101,7 +1112,7 @@
                                         const nivel = m.profundidad_nivel_m !== null
                                             ? m.profundidad_nivel_m + ' m'
                                             : '—';
-                                        html += `${fecha}: ${nivel} (${m.condicion})<br>`;
+                                        html += `${fecha}: ${nivel} (${NOMBRES_CONDICION[m.condicion] || m.condicion})<br>`;
                                         if (m.alerta) html += `<span style="color:#b45309">⚠ Revisar: ${m.alerta}</span><br>`;
                                     });
                                     layer.setPopupContent(html);
