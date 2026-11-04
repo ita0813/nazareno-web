@@ -49,6 +49,7 @@
     <script>
         var highlightLayer;
         function highlightFeature(e) {
+            if (typeof medicion !== 'undefined' && medicion.activa) return;
             highlightLayer = e.target;
 
             if (e.target.feature.geometry.type === 'LineString' || e.target.feature.geometry.type === 'MultiLineString') {
@@ -1030,40 +1031,6 @@
             resetLabels([layer_Pozos_8]);
         });
 
-
-
-        //Evento recibir datos. 
-        var grupoPuntosCampo = L.layerGroup().addTo(map);
-        window.addEventListener('message', function (e) {
-            const d = e.data;
-            if (d.tipo === 'NUEVO_PUNTO') {
-                L.circleMarker([d.lat, d.lon], {
-                    radius: 12,
-                    fillColor: "#ff7800",
-                    color: "#fff",
-                    weight: 1,
-                    fillOpacity: 0.9,
-                    pane: 'markerPane'
-                }).bindPopup(d.info).addTo(grupoPuntosCampo);
-            }
-        });
-
-
-        //activacion de capas -check
-        map.on('overlayadd', function (e) {
-            if (e.name === '0' || e.name === 'Pozos_8') {
-                window.parent.postMessage('MAPA_LISTO', '*');
-            }
-        });
-
-
-        //limpiar mapa -unchek
-        map.on('overlayremove', function (e) {
-            if (e.name === '0' || e.name === 'Pozos_8') {
-                grupoPuntosCampo.clearLayers();
-            }
-        });
-
         const NOMBRES_CONDICION = {
             estatico: 'Estático',
             dinamico: 'En bombeo',
@@ -1123,12 +1090,73 @@
                         });
                     }
                 }).addTo(map);
+                // Agregar la capa al control de capas, con su leyenda
+                const circulo = color =>
+                    `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;` +
+                    `background:${color};border:2px solid #fff;box-shadow:0 0 0 1px #999"></span>`;
 
+                overlaysTree.unshift({
+                    label: 'Pozos (base de datos)<br><table>' +
+                        `<tr><td style="text-align:center">${circulo('#1d6e8c')}</td><td>De campo</td></tr>` +
+                        `<tr><td style="text-align:center">${circulo('#9aa5ad')}</td><td>Otras fuentes</td></tr>` +
+                        '</table>',
+                    layer: capaPozosBD
+                });
+                lay.setOverlayTree(overlaysTree);
                 console.log('Pozos cargados desde la base de datos:', geojson.features.length);
             })
             .catch(error => {
                 console.error('No se pudieron cargar los pozos de la base de datos:', error);
             });
+
+        // ------------------------------------------------------------
+        // Medición de distancias (la activa el botón MEDIR de la página)
+        // ------------------------------------------------------------
+        var medicion = { activa: false, puntos: [], marcas: L.layerGroup().addTo(map), linea: null };
+
+        function limpiarMedicion() {
+            medicion.puntos = [];
+            medicion.marcas.clearLayers();
+            if (medicion.linea) {
+                map.removeLayer(medicion.linea);
+                medicion.linea = null;
+            }
+        }
+
+        map.on('click', function (e) {
+            if (!medicion.activa) return;
+
+            medicion.puntos.push(e.latlng);
+            L.circleMarker(e.latlng, {
+                radius: 5, color: '#7a4b00', weight: 2, fillColor: '#f2b33d', fillOpacity: 1
+            }).addTo(medicion.marcas);
+
+            if (medicion.puntos.length < 2) return;
+
+            if (medicion.linea) map.removeLayer(medicion.linea);
+            medicion.linea = L.polyline(medicion.puntos, { color: '#b7791f', weight: 3, dashArray: '6 6' }).addTo(map);
+
+            var metros = 0;
+            for (var i = 0; i < medicion.puntos.length - 1; i++) {
+                metros += medicion.puntos[i].distanceTo(medicion.puntos[i + 1]);
+            }
+            window.parent.postMessage({ tipo: 'DISTANCIA_CALCULADA', metros: metros }, '*');
+        });
+
+            window.addEventListener('message', function (e) {
+                    if (e.data && e.data.tipo === 'MODO_MEDICION') {
+                        medicion.activa = !!e.data.activo;
+                        limpiarMedicion();
+                        map.getContainer().style.cursor = medicion.activa ? 'crosshair' : '';
+                    }
+                });
+
+
+
+        // Mientras se mide, no abrir las ventanas de información de las capas
+        map.on('popupopen', function () {
+            if (medicion.activa) map.closePopup();
+        });
 
     </script>
 

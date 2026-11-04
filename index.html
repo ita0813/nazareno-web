@@ -154,6 +154,7 @@
         </div>
     </section>
 
+
     <script>
         let latCapturada = "";
         let lonCapturada = "";
@@ -219,6 +220,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(datos)
                 });
+
+              
+            
                 const resultado = await respuesta.json();
 
                 if (!respuesta.ok) {
@@ -452,63 +456,24 @@
             }, '*');
         }
 
-        const urlCsvPublico = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT2wC5BbuNpHTeFiNiZ1otA84P0tmLz61t-ZcEY-SpYvQt9fDXS1FQsYBjGg_LKWxzK_3uKy_r1PcpS/pub?gid=0&single=true&output=csv";
-
-        let datosPozosCargados = [];
-
-        function cargarPuntosDeCampo() {
-            fetch(urlCsvPublico)
-                .then(response => response.text())
-                .then(csvText => {
-                    datosPozosCargados = csvText.trim().split('\n').filter(linea => linea.trim() !== '').slice(1);
-                    enviarPozosAlMapa();
-                })
-                .catch(err => console.error("Error cargando el CSV:", err));
-        }
-
-        function enviarPozosAlMapa() {
-            const iframeEl = document.querySelector('iframe');
-            if (!iframeEl || !iframeEl.contentWindow) return;
-            const destino = iframeEl.contentWindow;
-
-            datosPozosCargados.forEach(fila => {
-                const col = fila.split(',').map(celda => celda.replace(/^"|"$/g, '').trim());
-
-                if (col.length < 6) return;
-
-                const lat = parseFloat(col[4]);
-                const lon = parseFloat(col[5]);
-                const titular = col[2] || 'Sin Titular';
-                const nivelEstatico = col[6] || 'N/A';
-
-                if (!isNaN(lat) && !isNaN(lon)) {
-                    destino.postMessage({
-                        tipo: 'NUEVO_PUNTO',
-                        lat: lat,
-                        lon: lon,
-                        info: `<b>Titular: ${titular}</b><br>Nivel Estático: ${nivelEstatico}m`
-                    }, '*');
-                }
-            });
-        }
 
         window.onload = function () {
             actualizarInterfaz();
-            cargarPuntosDeCampo();
         };
 
         window.addEventListener('message', (e) => {
-            if (e.data === 'MAPA_LISTO') {
-                enviarPozosAlMapa();
-            } else if (e.data && e.data.tipo === 'DISTANCIA_CALCULADA') {
-                const distKm = e.data.distancia;
-                const distM = (distKm * 1000).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+            if (e.data && e.data.tipo === 'DISTANCIA_CALCULADA') {
+                const metros = e.data.metros;
+                const km = (metros / 1000).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const m = Math.round(metros).toLocaleString('es-MX');
                 document.getElementById('resultado-medida').innerHTML = `
-                    <span class="text-lg font-black text-amber-700">${distKm} km</span> 
-                    <span class="text-xs text-slate-500 block">(${distM} metros)</span>
+                    <span class="text-lg font-black text-amber-700">${km} km</span>
+                    <span class="text-xs text-slate-500 block">(${m} metros)</span>
                 `;
             }
         });
+
+
     </script>
     <div id="loginModal"
         class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
@@ -730,91 +695,5 @@
 
 
 </body>
-<script>
-    // --- LÓGICA DE MEDICIÓN ESPACIAL INTEGRADA A QGIS2WEB ---
-    let modoMedicion = false;
-    let puntosMedicion = [];
-    let lineaMedicion = null;
-    let marcadoresMedicion = [];
-
-    // Función auxiliar para obtener el objeto del mapa de QGIS/Leaflet
-    function obtenerObjetoMapa() {
-        if (typeof map !== 'undefined') return map;
-        if (typeof map_ !== 'undefined') return map_;
-        if (window.map) return window.map;
-        return null;
-    }
-
-    // Escuchar la activación del modo medición desde la ventana principal
-    window.addEventListener('message', function (e) {
-        if (e.data && e.data.tipo === 'MODO_MEDICION') {
-            modoMedicion = e.data.activo;
-            limpiarMedicion();
-        }
-    });
-
-    // Registrar el evento de clic de manera segura cuando el mapa esté listo
-    function inicializarMedicion() {
-        const mapa = obtenerObjetoMapa();
-        if (!mapa) {
-            setTimeout(inicializarMedicion, 300);
-            return;
-        }
-
-        mapa.on('click', function (e) {
-            if (!modoMedicion) return;
-
-            const latlng = e.latlng;
-            puntosMedicion.push(latlng);
-
-            // Marcador en el punto seleccionado
-            const marker = L.circleMarker(latlng, {
-                radius: 6,
-                color: '#b45309',
-                fillColor: '#f59e0b',
-                fillOpacity: 1
-            }).addTo(mapa);
-            marcadoresMedicion.push(marker);
-
-            // Trazar línea y calcular distancia al acumular 2 o más puntos
-            if (puntosMedicion.length >= 2) {
-                if (lineaMedicion) {
-                    mapa.removeLayer(lineaMedicion);
-                }
-
-                lineaMedicion = L.polyline(puntosMedicion, {
-                    color: '#d97706',
-                    weight: 4,
-                    dashArray: '6, 8'
-                }).addTo(mapa);
-
-                let distanciaTotalMetros = 0;
-                for (let i = 0; i < puntosMedicion.length - 1; i++) {
-                    distanciaTotalMetros += puntosMedicion[i].distanceTo(puntosMedicion[i + 1]);
-                }
-
-                const distanciaKm = (distanciaTotalMetros / 1000).toFixed(2);
-
-                window.parent.postMessage({
-                    tipo: 'DISTANCIA_CALCULADA',
-                    distancia: distanciaKm
-                }, '*');
-            }
-        });
-    }
-
-    function limpiarMedicion() {
-        const mapa = obtenerObjetoMapa();
-        puntosMedicion = [];
-        if (lineaMedicion && mapa) mapa.removeLayer(lineaMedicion);
-        if (mapa) {
-            marcadoresMedicion.forEach(m => mapa.removeLayer(m));
-        }
-        marcadoresMedicion = [];
-    }
-
-    // Iniciar la escucha del mapa
-    inicializarMedicion();
-</script>
 
 </html>
