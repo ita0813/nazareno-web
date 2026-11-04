@@ -59,7 +59,7 @@
             } else {
                 highlightLayer.setStyle({
                     fillColor: 'rgba(255, 255, 0, 1.00)',
-                    fillOpacity: 1
+                    fillOpacity: 0.25
                 });
             }
         }
@@ -932,7 +932,7 @@
         });
         bounds_group.addLayer(layer_Pozos_8);
         var overlaysTree = [
-            { label: 'Pozos<br /><table><tr><td style="text-align: center;"><img src="legend/Pozos_8_150920VolExtracción0.png" /></td><td>150 - 920 Vol. Extracción</td></tr><tr><td style="text-align: center;"><img src="legend/Pozos_8_920187002VolExtracción1.png" /></td><td>920 - 187002 Vol. Extracción</td></tr><tr><td style="text-align: center;"><img src="legend/Pozos_8_187002709440VolExtracción2.png" /></td><td>187002 - 709440 Vol. Extracción</td></tr><tr><td style="text-align: center;"><img src="legend/Pozos_8_7094403193748VolExtracción3.png" /></td><td>709440 - 3193748 Vol. Extracción</td></tr><tr><td style="text-align: center;"><img src="legend/Pozos_8_319374827500000VolExtracción4.png" /></td><td>3193748 - 27500000 Vol. Extracción</td></tr></table>', layer: layer_Pozos_8 },
+
             { label: "Pendiente", layer: layer_Pendiente_7 },
             { label: 'Elevacion Nazareno<br /><table><tr><td style="text-align: center;"><img src="legend/ElevacionNazareno_6_Másde1900msnm0.png" /></td><td>Más de 1900 msnm</td></tr><tr><td style="text-align: center;"><img src="legend/ElevacionNazareno_6_17001900msnm1.png" /></td><td>1700 - 1900 msnm</td></tr><tr><td style="text-align: center;"><img src="legend/ElevacionNazareno_6_15001700msnm2.png" /></td><td>1500 - 1700 msnm</td></tr></table>', layer: layer_ElevacionNazareno_6 },
             { label: 'Uso Suelo Nazareno<br /><table><tr><td style="text-align: center;"><img src="legend/UsoSueloNazareno_5_SelvaBajaCaducifoliaSubcaducifoliaSBCSBKSBSMSTyVPI0.png" /></td><td>Selva Baja Caducifolia Subcaducifolia (SBC, SBK, SBS, MST y VPI)</td></tr><tr><td style="text-align: center;"><img src="legend/UsoSueloNazareno_5_PastizalesCultivadoseInducidosPCyPI1.png" /></td><td>Pastizales Cultivados e Inducidos (PC y PI)</td></tr><tr><td style="text-align: center;"><img src="legend/UsoSueloNazareno_5_TierrasAgrícolasCultivosAnualesTRyH2.png" /></td><td>Tierras Agrícolas Cultivos Anuales (T, R y H)</td></tr><tr><td style="text-align: center;"><img src="legend/UsoSueloNazareno_5_BosquedeEncinoGaleríaBQBQPyBG3.png" /></td><td>Bosque de Encino-Galería (BQ, BQP y BG)</td></tr><tr><td style="text-align: center;"><img src="legend/UsoSueloNazareno_5_UrbanoyConstruidoZUyAH4.png" /></td><td>Urbano y Construido (ZU y AH)</td></tr><tr><td style="text-align: center;"><img src="legend/UsoSueloNazareno_5_SueloDesnudoADVyDV5.png" /></td><td>Suelo Desnudo (ADV y DV)</td></tr></table>', layer: layer_UsoSueloNazareno_5 },
@@ -1031,6 +1031,13 @@
             resetLabels([layer_Pozos_8]);
         });
 
+        // Convierte texto en HTML seguro (evita que un dato se interprete como código)
+        function escapar(texto) {
+            return String(texto ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
         const NOMBRES_CONDICION = {
             estatico: 'Estático',
             dinamico: 'En bombeo',
@@ -1069,10 +1076,34 @@
 
                         // Cuando se abre el popup, pedir las mediciones de ese pozo
                         layer.on('popupopen', () => {
-                            fetch(`/api/pozos/${p.id_pozo}/mediciones`)
-                                .then(respuesta => respuesta.json())
-                                .then(mediciones => {
-                                    let html = encabezado + '<hr><b>Mediciones</b><br>';
+                                                       Promise.all([
+                                fetch(`/api/pozos/${p.id_pozo}/mediciones`).then(r => r.json()),
+                                fetch(`/api/pozos/${p.id_pozo}/concesiones`).then(r => r.json())
+                            ])
+                                .then(([mediciones, concesiones]) => {
+                                    let html = encabezado;
+
+                                    // Concesiones del REPDA
+                                    if (concesiones.length > 0) {
+                                        html += '<hr><b>Concesión REPDA</b><br>';
+                                        concesiones.forEach(c => {
+                                            html += `Título: ${escapar(c.titulo)}<br>`;
+                                            if (c.titular) html += `Titular: ${escapar(c.titular)}<br>`;
+                                            if (c.volumen_m3_anual !== null) {
+                                                const m3 = Number(c.volumen_m3_anual);
+                                                const ls = m3 * 1000 / 31536000;
+                                                html += `Volumen concesionado: ${m3.toLocaleString('es-MX')} m³/año (${ls.toFixed(2)} L/s)<br>`;
+                                            } else {
+                                                html += 'Volumen concesionado: sin dato<br>';
+                                            }
+                                            if (c.volumen_dudoso) {
+                                                html += '<span style="color:#b45309">⚠ Volumen dudoso: verificar en el REPDA</span><br>';
+                                            }
+                                        });
+                                    }
+
+                                    // Mediciones de campo
+                                    html += '<hr><b>Mediciones</b><br>';
                                     if (mediciones.length === 0) html += 'Sin mediciones';
                                     mediciones.forEach(m => {
                                         const fecha = new Date(m.fecha_hora).toLocaleDateString('es-MX');
@@ -1082,7 +1113,11 @@
                                         html += `${fecha}: ${nivel} (${NOMBRES_CONDICION[m.condicion] || m.condicion})<br>`;
                                         if (m.alerta) html += `<span style="color:#b45309">⚠ Revisar: ${m.alerta}</span><br>`;
                                     });
+
                                     layer.setPopupContent(html);
+                                })
+                                .catch(() => {
+                                    layer.setPopupContent(encabezado + '<br>No se pudo cargar la información del pozo');
                                 })
                                 .catch(() => {
                                     layer.setPopupContent(encabezado + '<br>No se pudieron cargar las mediciones');
@@ -1143,13 +1178,13 @@
             window.parent.postMessage({ tipo: 'DISTANCIA_CALCULADA', metros: metros }, '*');
         });
 
-            window.addEventListener('message', function (e) {
-                    if (e.data && e.data.tipo === 'MODO_MEDICION') {
-                        medicion.activa = !!e.data.activo;
-                        limpiarMedicion();
-                        map.getContainer().style.cursor = medicion.activa ? 'crosshair' : '';
-                    }
-                });
+        window.addEventListener('message', function (e) {
+            if (e.data && e.data.tipo === 'MODO_MEDICION') {
+                medicion.activa = !!e.data.activo;
+                limpiarMedicion();
+                map.getContainer().style.cursor = medicion.activa ? 'crosshair' : '';
+            }
+        });
 
 
 

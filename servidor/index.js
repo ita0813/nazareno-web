@@ -392,6 +392,31 @@ app.post('/api/pozos', requiereSesion, async (req, res) => {
   }
 });
 
+// Concesiones REPDA de un pozo. El titular solo se incluye con sesión iniciada.
+app.get('/api/pozos/:id/concesiones', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'El id del pozo debe ser un número' });
+  }
+
+  const conSesion = Boolean(req.session.usuario);
+  const columnas = 'titulo, uso, volumen_m3_anual, volumen_dudoso, fecha_registro, observaciones'
+    + (conSesion ? ', titular' : '');
+
+  try {
+    const resultado = await pool.query(
+      `SELECT ${columnas} FROM concesion
+       WHERE id_pozo = $1
+       ORDER BY fecha_registro DESC NULLS LAST`,
+      [id]
+    );
+    res.json(resultado.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No se pudieron obtener las concesiones' });
+  }
+});
+
 app.listen(PUERTO, () => {
   console.log(`Servidor escuchando en http://localhost:${PUERTO}`);
 });
