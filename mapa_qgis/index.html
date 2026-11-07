@@ -39,6 +39,7 @@
     <script src="js/labelgun.min.js"></script>
     <script src="js/labels.js"></script>
     <script src="js/leaflet.photon.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="data/DelimitacionMicrocuencaNazareno_1.js"></script>
     <script src="data/RedHidrica_2.js"></script>
     <script src="data/Geologia_3.js"></script>
@@ -1186,10 +1187,43 @@
                                         if (m.alerta) html += `<span style="color:#b45309">⚠ Revisar: ${m.alerta}</span><br>`;
                                     });
 
+                                    // Serie para la gráfica: solo mediciones sin bombeo, de la más antigua a la más reciente
+                                    const serie = mediciones
+                                        .filter(m => m.condicion === 'estatico' && m.profundidad_nivel_m !== null)
+                                        .reverse();
+
+                                    if (serie.length >= 2) {
+                                        html += `<div style="width:240px;height:140px;margin-top:6px">` +
+                                            `<canvas id="grafica-${p.id_pozo}"></canvas></div>`;
+                                    } else if (mediciones.length > 0) {
+                                        html += '<i style="color:#777">Se necesitan al menos 2 mediciones sin bombeo para la gráfica</i>';
+                                    }
+
                                     layer.setPopupContent(html);
-                                })
-                                .catch(() => {
-                                    layer.setPopupContent(encabezado + '<br>No se pudo cargar la información del pozo');
+
+                                    // Dibujar la gráfica (después de que el canvas ya existe en el popup)
+                                    if (serie.length >= 2) {
+                                        if (layer.grafica) layer.grafica.destroy();
+                                        layer.grafica = new Chart(document.getElementById(`grafica-${p.id_pozo}`), {
+                                            type: 'line',
+                                            data: {
+                                                labels: serie.map(m => new Date(m.fecha_hora).toLocaleDateString('es-MX')),
+                                                datasets: [{
+                                                    data: serie.map(m => Number(m.profundidad_nivel_m)),
+                                                    borderColor: '#2563eb',
+                                                    backgroundColor: '#2563eb'
+                                                }]
+                                            },
+                                            options: {
+                                                animation: false,
+                                                maintainAspectRatio: false,
+                                                plugins: { legend: { display: false } },
+                                                scales: {
+                                                    y: { reverse: true, title: { display: true, text: 'Profundidad (m)' } }
+                                                }
+                                            }
+                                        });
+                                    }
                                 })
                                 .catch(() => {
                                     layer.setPopupContent(encabezado + '<br>No se pudieron cargar las mediciones');
