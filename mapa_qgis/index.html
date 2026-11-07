@@ -1038,8 +1038,80 @@
             }[c]));
         }
 
+        // Panel de filtros por fuente y por uso para la capa de pozos de la base de datos
+        function crearFiltros(geojson, capa) {
+            // Los valores distintos que hay en los datos (Set elimina los repetidos)
+            const fuentes = [...new Set(geojson.features.map(f => f.properties.fuente))];
+            const usos = [...new Set(geojson.features.map(f => f.properties.uso || 'Sin dato'))].sort();
+
+            const control = L.control({ position: 'bottomleft' });
+
+            control.onAdd = function () {
+                const div = L.DomUtil.create('div');
+                div.style.cssText = 'background:#fff;padding:8px 12px;border-radius:8px;' +
+                    'box-shadow:0 1px 5px rgba(0,0,0,.35);font:12px sans-serif;max-height:340px;overflow:auto';
+
+                const grupo = (titulo, clase, valores) =>
+                    `<b>${titulo}</b><br>` +
+                    valores.map(v =>
+                        `<label style="display:block;cursor:pointer">` +
+                        `<input type="checkbox" class="${clase}" value="${escapar(v)}" checked> ${escapar(v)}</label>`
+                    ).join('');
+
+                div.innerHTML =
+                    '<div id="filtro-titulo" style="cursor:pointer;font-weight:bold;user-select:none">' +
+                    '<span id="filtro-flecha">▾</span> Filtros · ' +
+                    '<span id="filtro-conteo" style="font-weight:normal;color:#555"></span></div>' +
+                    '<div id="filtro-contenido" style="margin-top:6px">' +
+                    grupo('Fuente', 'filtro-fuente', fuentes) +
+                    '<div style="height:8px"></div>' +
+                    grupo('Uso', 'filtro-uso', usos) +
+                    '<div style="margin-top:8px;border-top:1px solid #ddd;padding-top:6px"><b>Descargar</b><br>' +
+                    '<a href="/api/exportar/pozos.geojson" download>Pozos (GeoJSON)</a><br>' +
+                    '<a href="/api/exportar/mediciones.csv" download>Mediciones (CSV)</a></div>' +
+                    '</div>';
+                // Que los clics en el panel no lleguen al mapa (ni a la medición)
+                L.DomEvent.disableClickPropagation(div);
+                L.DomEvent.disableScrollPropagation(div);
+
+                div.addEventListener('change', aplicar);
+
+                // Clic en el título: mostrar u ocultar el contenido del panel
+                const contenido = div.querySelector('#filtro-contenido');
+                const flecha = div.querySelector('#filtro-flecha');
+                div.querySelector('#filtro-titulo').addEventListener('click', () => {
+                    const estabaOculto = contenido.style.display === 'none';
+                    contenido.style.display = estabaOculto ? '' : 'none';
+                    flecha.textContent = estabaOculto ? '▾' : '▸';
+                });
+
+                return div;
+            };
+
+            control.addTo(map);
+
+            function aplicar() {
+                const marcados = clase =>
+                    [...document.querySelectorAll('.' + clase + ':checked')].map(c => c.value);
+                const fuentesVisibles = marcados('filtro-fuente');
+                const usosVisibles = marcados('filtro-uso');
+
+                const visibles = geojson.features.filter(f =>
+                    fuentesVisibles.includes(f.properties.fuente) &&
+                    usosVisibles.includes(f.properties.uso || 'Sin dato')
+                );
+
+                capa.clearLayers();
+                capa.addData({ type: 'FeatureCollection', features: visibles });
+                document.getElementById('filtro-conteo').textContent =
+                    `${visibles.length} de ${geojson.features.length} pozos`;
+            }
+
+            aplicar();
+        }
+
         const NOMBRES_CONDICION = {
-            estatico: 'Estático',
+            estatico: 'Sin bombeo',
             dinamico: 'En bombeo',
             seco: 'Seco',
             sin_acceso: 'Sin acceso'
@@ -1076,7 +1148,7 @@
 
                         // Cuando se abre el popup, pedir las mediciones de ese pozo
                         layer.on('popupopen', () => {
-                                                       Promise.all([
+                            Promise.all([
                                 fetch(`/api/pozos/${p.id_pozo}/mediciones`).then(r => r.json()),
                                 fetch(`/api/pozos/${p.id_pozo}/concesiones`).then(r => r.json())
                             ])
@@ -1108,7 +1180,7 @@
                                     mediciones.forEach(m => {
                                         const fecha = new Date(m.fecha_hora).toLocaleDateString('es-MX');
                                         const nivel = m.profundidad_nivel_m !== null
-                                            ? m.profundidad_nivel_m + ' m'
+                                            ? 'profundidad ' + Number(m.profundidad_nivel_m).toFixed(2) + ' m'
                                             : '—';
                                         html += `${fecha}: ${nivel} (${NOMBRES_CONDICION[m.condicion] || m.condicion})<br>`;
                                         if (m.alerta) html += `<span style="color:#b45309">⚠ Revisar: ${m.alerta}</span><br>`;
@@ -1138,6 +1210,7 @@
                     layer: capaPozosBD
                 });
                 lay.setOverlayTree(overlaysTree);
+                crearFiltros(geojson, capaPozosBD);
                 console.log('Pozos cargados desde la base de datos:', geojson.features.length);
             })
             .catch(error => {

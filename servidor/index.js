@@ -120,10 +120,9 @@ app.get('/api/prueba-bd', async (req, res) => {
     res.status(500).json({ conexion: 'error', mensaje: error.message });
   }
 });
-// Ruta: todos los pozos en formato GeoJSON
-app.get('/api/pozos', async (req, res) => {
-  try {
-    const sql = `
+// Arma el GeoJSON de todos los pozos (lo usan la ruta del mapa y la exportación)
+async function obtenerPozosGeoJSON() {
+  const sql = `
       SELECT json_build_object(
         'type', 'FeatureCollection',
         'features', COALESCE(json_agg(
@@ -146,9 +145,14 @@ app.get('/api/pozos', async (req, res) => {
       FROM pozo p
       JOIN fuente f ON f.id_fuente = p.id_fuente;
     `;
+  const resultado = await pool.query(sql);
+  return resultado.rows[0].geojson;
+}
 
-    const resultado = await pool.query(sql);
-    res.json(resultado.rows[0].geojson);
+// Ruta: todos los pozos en formato GeoJSON, para el mapa
+app.get('/api/pozos', async (req, res) => {
+  try {
+    res.json(await obtenerPozosGeoJSON());
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'No se pudieron obtener los pozos', mensaje: error.message });
@@ -414,6 +418,62 @@ app.get('/api/pozos/:id/concesiones', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'No se pudieron obtener las concesiones' });
+  }
+});
+
+// Convierte filas en texto CSV que Excel abre bien (con acentos)
+function aCSV(filas, columnas) {
+  const celda = valor => {
+    if (valor === null || valor === undefined) return '';
+    const texto = String(valor);
+    return /[",\r\n]/.test(texto) ? '"' + texto.replace(/"/g, '""') + '"' : texto;
+  };
+  const lineas = [columnas.join(','), ...filas.map(f => columnas.map(c => celda(f[c])).join(','))];
+  return '\uFEFF' + lineas.join('\r\n');
+}
+
+// Descargar los pozos en GeoJSON (público, sin titular)
+app.get('/api/exportar/pozos.geojson', async (req, res) => {
+  try {
+    const geojson = await obtenerPozosGeoJSON();
+    res.setHeader('Content-Type', 'application/geo+json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="pozos_nazareno.geojson"');
+    res.send(JSON.stringify(geojson, null, 2));
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('No se pudo generar el archivo');
+  }
+});
+
+// Descargar las mediciones en CSV (público)
+app.get('/api/exportar/mediciones.csv', async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      `SELECT p.codigo_interno,
+              p.nombre AS pozo,
+              ROUND(ST_Y(p.geom)::numeric, 6) AS latitud,
+              ROUND(ST_X(p.geom)::numeric, 6) AS longitud,
+              to_char(m.fecha_hora, 'YYYY-MM-DD HH24:MI') AS fecha_hora,
+              m.condicion,
+              m.profundidad_nivel_m,
+              m.metodo,
+              m.estado_revision,
+              m.alerta,
+              f.nombre AS fuente,
+              f.referencia
+       FROM medicion m
+       JOIN pozo p ON p.id_pozo = m.id_pozo
+       JOIN fuente f ON f.id_fuente = m.id_fuente
+       ORDER BY p.codigo_interno, m.fecha_hora`
+    );
+    const columnas = ['codigo_interno', 'pozo', 'latitud', 'longitud', 'fecha_hora', 'condicion',
+                      'profundidad_nivel_m', 'metodo', 'estado_revision', 'alerta', 'fuente', 'referencia'];
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="mediciones_nazareno.csv"');
+    res.send(aCSV(resultado.rows, columnas));
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('No se pudo generar el archivo');
   }
 });
 

@@ -221,8 +221,8 @@
                     body: JSON.stringify(datos)
                 });
 
-              
-            
+
+
                 const resultado = await respuesta.json();
 
                 if (!respuesta.ok) {
@@ -549,8 +549,8 @@
                     <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Condición del pozo</label>
                     <select id="cap-condicion" onchange="actualizarCampoProfundidad()"
                         class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
-                        <option value="estatico">Estático (bomba apagada)</option>
-                        <option value="dinamico">En bombeo</option>
+                        <option value="estatico">Sin bombeo (nivel estático)</option>
+                        <option value="dinamico">En bombeo (nivel dinámico)</option>
                         <option value="seco">Seco</option>
                         <option value="sin_acceso">Sin acceso</option>
                     </select>
@@ -558,7 +558,7 @@
 
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Profundidad (m)</label>
+                        <label class="text-[10px] font-black text-slate-400 uppercase ml-1">Profundidad al agua(m)</label>
                         <input type="number" step="0.01" min="0" id="cap-profundidad" placeholder="19.60"
                             class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
                     </div>
