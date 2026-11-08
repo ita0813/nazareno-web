@@ -172,7 +172,7 @@ app.get('/api/pozos/:id/mediciones', async (req, res) => {
       `SELECT m.fecha_hora, m.condicion, m.profundidad_nivel_m, m.metodo, m.alerta,
               c.nombre AS campana, v.nivel_estatico_msnm
        FROM medicion m
-                     LEFT JOIN campana c ON c.id_campana = m.id_campana
+       LEFT JOIN campana c ON c.id_campana = m.id_campana
        LEFT JOIN v_carga_hidraulica v ON v.id_medicion = m.id_medicion
        WHERE m.id_pozo = $1
        ORDER BY m.fecha_hora DESC`,
@@ -469,7 +469,7 @@ app.get('/api/exportar/mediciones.csv', async (req, res) => {
        ORDER BY p.codigo_interno, m.fecha_hora`
     );
     const columnas = ['codigo_interno', 'pozo', 'latitud', 'longitud', 'fecha_hora', 'condicion',
-                      'profundidad_nivel_m', 'metodo', 'estado_revision', 'alerta', 'fuente', 'referencia'];
+      'profundidad_nivel_m', 'metodo', 'estado_revision', 'alerta', 'fuente', 'referencia'];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="mediciones_nazareno.csv"');
     res.send(aCSV(resultado.rows, columnas));
@@ -478,7 +478,69 @@ app.get('/api/exportar/mediciones.csv', async (req, res) => {
     res.status(500).send('No se pudo generar el archivo');
   }
 });
+// Dirección preliminar del flujo subterráneo (RF-10).
+// Ajusta un plano a los niveles estáticos: con 3 pozos es el método de los tres puntos,
+// con más pozos es un ajuste por mínimos cuadrados. Usa la medición sin bombeo más reciente de cada pozo.
+app.get('/api/flujo', async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      `SELECT DISTINCT ON (v.id_pozo)
+              p.codigo_interno,
+              v.nivel_estatico_msnm::float AS h,
+              ST_X(ST_Transform(p.geom, 32614)) AS x,
+              ST_Y(ST_Transform(p.geom, 32614)) AS y,
+              ST_X(p.geom) AS lon,
+              ST_Y(p.geom) AS lat
+       FROM v_carga_hidraulica v
+       JOIN pozo p ON p.id_pozo = v.id_pozo
+       ORDER BY v.id_pozo, v.fecha_hora DESC`
+    );
+    const pozos = resultado.rows;
+    const n = pozos.length;
 
+    if (n < 3) {
+      return res.json({ suficiente: false, pozos: n, mensaje: 'Se necesitan al menos 3 pozos con nivel estático' });
+    }
+
+    // Trabajar respecto al centro de los pozos
+    const cx = pozos.reduce((s, p) => s + p.x, 0) / n;
+    const cy = pozos.reduce((s, p) => s + p.y, 0) / n;
+    const ch = pozos.reduce((s, p) => s + p.h, 0) / n;
+
+    // Ajuste del plano: h = ch + b·(x − cx) + c·(y − cy)
+    let sxx = 0, sxy = 0, syy = 0, sxh = 0, syh = 0;
+    for (const p of pozos) {
+      const dx = p.x - cx, dy = p.y - cy, dh = p.h - ch;
+      sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+      sxh += dx * dh; syh += dy * dh;
+    }
+    const det = sxx * syy - sxy * sxy;
+    if (Math.abs(det) < 1e-6) {
+      return res.json({ suficiente: false, pozos: n, mensaje: 'Los pozos están alineados; no se puede ajustar un plano' });
+    }
+    const b = (sxh * syy - syh * sxy) / det;   // cuánto sube h hacia el este (m por m)
+    const c = (syh * sxx - sxh * sxy) / det;   // cuánto sube h hacia el norte (m por m)
+
+    const gradiente = Math.hypot(b, c);
+    // El agua va hacia donde h baja: dirección (−b, −c). Azimut medido desde el norte, en sentido horario.
+    const azimut = (Math.atan2(-b, -c) * 180 / Math.PI + 360) % 360;
+
+    res.json({
+      suficiente: true,
+      pozos: pozos.map(p => p.codigo_interno),
+      gradiente: Number(gradiente.toFixed(5)),
+      azimut: Number(azimut.toFixed(1)),
+      centro: {
+        lat: pozos.reduce((s, p) => s + p.lat, 0) / n,
+        lon: pozos.reduce((s, p) => s + p.lon, 0) / n
+      },
+      vertices: pozos.map(p => [p.lat, p.lon])
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No se pudo calcular la dirección del flujo' });
+  }
+});
 app.listen(PUERTO, () => {
   console.log(`Servidor escuchando en http://localhost:${PUERTO}`);
 });
