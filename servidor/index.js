@@ -137,7 +137,8 @@ async function obtenerPozosGeoJSON() {
               'clave_repda', p.clave_repda,
               'uso',         p.uso,
               'fuente',      f.nombre,
-              'tipo_fuente', f.tipo
+              'tipo_fuente', f.tipo,
+              'elevacion_terreno_m', p.elevacion_terreno_m
             )
           )
         ), '[]'::json)
@@ -169,9 +170,10 @@ app.get('/api/pozos/:id/mediciones', async (req, res) => {
   try {
     const resultado = await pool.query(
       `SELECT m.fecha_hora, m.condicion, m.profundidad_nivel_m, m.metodo, m.alerta,
-              c.nombre AS campana
+              c.nombre AS campana, v.nivel_estatico_msnm
        FROM medicion m
-       LEFT JOIN campana c ON c.id_campana = m.id_campana
+                     LEFT JOIN campana c ON c.id_campana = m.id_campana
+       LEFT JOIN v_carga_hidraulica v ON v.id_medicion = m.id_medicion
        WHERE m.id_pozo = $1
        ORDER BY m.fecha_hora DESC`,
       [id]
