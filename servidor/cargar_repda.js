@@ -1,5 +1,6 @@
 // Carga los pozos del REPDA desde el archivo del mapa a la base de datos.
-// - Si ya existe un pozo a menos de 15 m, solo le agrega la concesión (no lo duplica).
+// - Si un pozo ya tiene ese título del REPDA (vinculado tras confirmarlo en campo), le agrega la concesión.
+//   La cercanía NO basta para unir: dos pozos a 10-20 m pueden ser independientes.
 // - Si no, crea el pozo con fuente institucional (REPDA).
 // Uso: node cargar_repda.js
 
@@ -9,7 +10,6 @@ const pool = require('./db');
 
 const ID_FUENTE_REPDA = 2;          // el id_fuente de "REPDA (CONAGUA)"
 const ID_ADMIN = 1;                 // quién queda como responsable de la carga
-const DISTANCIA_UNION_M = 15;       // misma regla que el formulario
 const VOLUMEN_IRREAL_M3 = 1000000;  
 
 const USOS = {
@@ -54,23 +54,20 @@ async function main() {
       const volumen = leerVolumen(p['Volumen de']);
       const dudoso = volumen !== null && volumen > VOLUMEN_IRREAL_M3;
 
-      // Ya existe un pozo a menos de 15 m?
+      // ¿Algún pozo ya tiene este título del REPDA? (vínculo confirmado en campo)
       const cercano = await cliente.query(
-        `SELECT id_pozo FROM pozo
-         WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
-         ORDER BY ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)
-         LIMIT 1`,
-        [lon, lat, DISTANCIA_UNION_M]
+        'SELECT id_pozo FROM pozo WHERE clave_repda = $1 LIMIT 1',
+        [titulo]
       );
 
       let idPozo;
       if (cercano.rowCount > 0) {
 
-        // Es el mismo pozo: completar su clave y su uso si estaban vacíos
+        // Es el mismo pozo: completar su uso si estaba vacío
         idPozo = cercano.rows[0].id_pozo;
         await cliente.query(
-          'UPDATE pozo SET clave_repda = COALESCE(clave_repda, $1), uso = COALESCE(uso, $2) WHERE id_pozo = $3',
-          [titulo, uso, idPozo]
+          'UPDATE pozo SET uso = COALESCE(uso, $1) WHERE id_pozo = $2',
+          [uso, idPozo]
         );
         resumen.pozos_unidos++;
       } else {

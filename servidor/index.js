@@ -96,6 +96,11 @@ app.post('/api/logout', (req, res) => {
 app.use('/servidor', (req, res) => {
   res.status(404).send('No encontrado');
 });
+// Tampoco las copias de respaldo (*.backup)
+app.use((req, res, next) => {
+  if (/\.backup$/i.test(req.path)) return res.status(404).send('No encontrado');
+  next();
+});
 
 // Entregar la plataforma (index.html, mapa_qgis, css, etc.)
 app.use(express.static(path.join(__dirname, '..'), { dotfiles: 'deny' }));
@@ -138,7 +143,8 @@ async function obtenerPozosGeoJSON() {
               'uso',         p.uso,
               'fuente',      f.nombre,
               'tipo_fuente', f.tipo,
-              'elevacion_terreno_m', p.elevacion_terreno_m
+              'elevacion_terreno_m', p.elevacion_terreno_m,
+              'metodo_coordenada', p.metodo_coordenada
             )
           )
         ), '[]'::json)
@@ -170,13 +176,16 @@ app.get('/api/pozos/:id/mediciones', async (req, res) => {
   try {
     const resultado = await pool.query(
       `SELECT m.fecha_hora, m.condicion, m.profundidad_nivel_m, m.metodo, m.alerta,
-              c.nombre AS campana, v.nivel_estatico_msnm
+              c.nombre AS campana, v.nivel_estatico_msnm,
+              CASE WHEN $2::boolean THEN u.nombre END AS registro
        FROM medicion m
        LEFT JOIN campana c ON c.id_campana = m.id_campana
        LEFT JOIN v_carga_hidraulica v ON v.id_medicion = m.id_medicion
+       LEFT JOIN usuario u ON u.id_usuario = m.id_usuario
        WHERE m.id_pozo = $1
        ORDER BY m.fecha_hora DESC`,
-      [id]
+      // Quién registró la medición: solo se muestra con sesión iniciada (trazabilidad sin exponer nombres)
+      [id, Boolean(req.session.usuario)]
     );
     res.json(resultado.rows);
   } catch (error) {
@@ -317,7 +326,7 @@ const LIMITES_OAXACA = { latMin: 15.6, latMax: 18.7, lonMin: -98.6, lonMax: -93.
 app.post('/api/pozos', requiereSesion, async (req, res) => {
   const {
     nombre, uso, clave_repda, clave_sgm,
-    latitud, longitud, profundidad_total_m, altura_brocal_m, id_fuente
+    latitud, longitud, profundidad_total_m, altura_brocal_m, id_fuente, metodo_coordenada
   } = req.body || {};
 
   // 1. Revisar los datos
@@ -330,6 +339,9 @@ app.post('/api/pozos', requiereSesion, async (req, res) => {
     errores.push('Las coordenadas están fuera de Oaxaca. Revisa que la latitud y la longitud no estén invertidas');
   }
   if (!Number.isInteger(id_fuente)) errores.push('Falta la fuente');
+  if (!['celular', 'gps_mano', 'gps_diferencial', 'repda'].includes(metodo_coordenada)) {
+    errores.push('Indica cómo se obtuvo la coordenada');
+  }
   if (profundidad_total_m != null && !(profundidad_total_m > 0)) {
     errores.push('La profundidad total debe ser mayor que 0');
   }
@@ -343,19 +355,21 @@ app.post('/api/pozos', requiereSesion, async (req, res) => {
 
   try {
 
-    // ¿Ya existe un pozo a menos de 15 m?
+    // ¿Hay otro pozo cerca? Solo se avisa: dos pozos a 10-20 m pueden ser independientes,
+    // porque el subsuelo no es homogéneo. Nunca se unen automáticamente.
     const cercano = await pool.query(
-      `SELECT codigo_interno, nombre FROM pozo
-       WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 15)
+      `SELECT codigo_interno, nombre,
+              ROUND(ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)) AS distancia
+       FROM pozo
+       WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 30)
+       ORDER BY distancia
        LIMIT 1`,
       [longitud, latitud]
     );
-    if (cercano.rowCount > 0) {
-      const p = cercano.rows[0];
-      return res.status(409).json({
-        errores: [`Ya existe un pozo a menos de 15 m: ${p.codigo_interno} ${p.nombre || ''}. Revisa si es el mismo`]
-      });
-    }
+    const aviso = cercano.rowCount > 0
+      ? `Hay otro pozo a ${cercano.rows[0].distancia} m (${cercano.rows[0].codigo_interno}). ` +
+        'Se registró como pozo independiente; si es el mismo, avisa al administrador'
+      : null;
 
     // 3. Calcular el siguiente código: NAZ-006, NAZ-007...
     const siguiente = await pool.query(
@@ -367,8 +381,9 @@ app.post('/api/pozos', requiereSesion, async (req, res) => {
     // 4. Guardar
     const resultado = await pool.query(
       `INSERT INTO pozo (codigo_interno, nombre, uso, clave_repda, clave_sgm,
-                         profundidad_total_m, altura_brocal_m, geom, id_fuente, id_usuario_registro)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($8, $9), 4326), $10, $11)
+                         profundidad_total_m, altura_brocal_m, geom, id_fuente, id_usuario_registro,
+                         metodo_coordenada)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($8, $9), 4326), $10, $11, $12)
        RETURNING id_pozo, codigo_interno`,
       [
         codigo,
@@ -381,11 +396,12 @@ app.post('/api/pozos', requiereSesion, async (req, res) => {
         longitud,
         latitud,
         id_fuente,
-        req.session.usuario.id
+        req.session.usuario.id,
+        metodo_coordenada
       ]
     );
 
-    res.status(201).json({ mensaje: 'Pozo registrado', ...resultado.rows[0] });
+    res.status(201).json({ mensaje: 'Pozo registrado', aviso, ...resultado.rows[0] });
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ errores: ['Ese código ya existe. Intenta de nuevo'] });
@@ -541,6 +557,37 @@ app.get('/api/flujo', async (req, res) => {
     res.status(500).json({ error: 'No se pudo calcular la dirección del flujo' });
   }
 });
+// Resumen de la microcuenca: cifras calculadas directamente de la base de datos (público)
+app.get('/api/resumen', async (req, res) => {
+  try {
+    const [pozos, usos, concesiones, mediciones, niveles] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS total,
+                         COUNT(*) FILTER (WHERE f.tipo = 'campo')::int AS campo
+                  FROM pozo p JOIN fuente f ON f.id_fuente = p.id_fuente`),
+      pool.query(`SELECT COALESCE(uso, 'Sin dato') AS uso, COUNT(*)::int AS n
+                  FROM pozo GROUP BY 1 ORDER BY n DESC, uso`),
+      pool.query(`SELECT COUNT(*)::int AS total,
+                         COALESCE(SUM(volumen_m3_anual) FILTER (WHERE NOT volumen_dudoso), 0)::float AS volumen,
+                         COUNT(*) FILTER (WHERE volumen_dudoso)::int AS dudosos
+                  FROM concesion`),
+      pool.query(`SELECT COUNT(*)::int AS total, MAX(fecha_hora) AS ultima FROM medicion`),
+      pool.query(`SELECT COUNT(*)::int AS pozos, MIN(h)::float AS minimo, MAX(h)::float AS maximo
+                  FROM (SELECT DISTINCT ON (id_pozo) nivel_estatico_msnm AS h
+                        FROM v_carga_hidraulica ORDER BY id_pozo, fecha_hora DESC) t`)
+    ]);
+    res.json({
+      pozos: pozos.rows[0],
+      usos: usos.rows,
+      concesiones: concesiones.rows[0],
+      mediciones: mediciones.rows[0],
+      niveles: niveles.rows[0]
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'No se pudo calcular el resumen' });
+  }
+});
+
 app.listen(PUERTO, () => {
   console.log(`Servidor escuchando en http://localhost:${PUERTO}`);
 });

@@ -147,6 +147,9 @@
 
 
             <div class="lg:col-span-3 h-[400px] md:h-[520px] w-full overflow-hidden rounded-2xl relative">
+                <a href="mapa_qgis/index.html"
+                    class="absolute top-2 right-14 z-10 bg-white/95 hover:bg-white text-slate-700 text-xs font-bold px-3 py-2 rounded-lg shadow">
+                    ⛶ Mapa en pantalla completa</a>
                 <div class="w-full h-full shadow-inner border border-slate-200">
                     <iframe src="mapa_qgis/index.html" class="w-full h-full border-0 absolute inset-0"></iframe>
                 </div>
@@ -207,7 +210,8 @@
                 altura_brocal_m: numero('pozo-brocal'),
                 clave_repda: valor('pozo-repda').trim() || null,
                 clave_sgm: valor('pozo-sgm').trim() || null,
-                id_fuente: Number(valor('pozo-fuente'))
+                id_fuente: Number(valor('pozo-fuente')),
+                metodo_coordenada: valor('pozo-metodo')
             };
 
             boton.disabled = true;
@@ -243,6 +247,10 @@
                 const msgMedicion = document.getElementById('cap-mensaje');
                 msgMedicion.className = 'text-sm text-emerald-600';
                 msgMedicion.textContent = `Pozo ${resultado.codigo_interno} registrado. Ahora puedes capturar su medición.`;
+                if (resultado.aviso) {
+                    msgMedicion.className = 'text-sm text-amber-600';
+                    msgMedicion.textContent += ' ⚠ ' + resultado.aviso;
+                }
             } catch (error) {
                 mensaje.className = 'text-sm text-red-600';
                 mensaje.textContent = 'No hay conexión con el servidor.';
@@ -675,6 +683,17 @@
                         <input type="text" id="pozo-sgm" placeholder="Opcional"
                             class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
                     </div>
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase ml-1">¿Cómo se obtuvo la coordenada?</label>
+                    <select id="pozo-metodo"
+                        class="mt-1 block w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 text-sm">
+                        <option value="celular">Celular (precisión de metros)</option>
+                        <option value="gps_mano">GPS de mano</option>
+                        <option value="gps_diferencial">GPS diferencial / RTK (centímetros)</option>
+                        <option value="repda">Coordenada oficial del REPDA</option>
+                    </select>
                 </div>
 
                 <div>

@@ -1033,6 +1033,14 @@
         });
 
         // Convierte texto en HTML seguro (evita que un dato se interprete como código)
+        // Cómo se obtuvo la coordenada de cada pozo, con su precisión aproximada
+        const METODOS_COORDENADA = {
+            celular: 'celular (precisión de metros)',
+            gps_mano: 'GPS de mano',
+            gps_diferencial: 'GPS diferencial (centímetros)',
+            repda: 'oficial del REPDA'
+        };
+
         function escapar(texto) {
             return String(texto ?? '').replace(/[&<>"']/g, c => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -1111,6 +1119,80 @@
             aplicar();
         }
 
+        // Dirección preliminar del flujo subterráneo (RF-10)
+        fetch('/api/flujo')
+            .then(r => r.json())
+            .then(f => {
+                if (!f.suficiente) return;
+
+                // Puntos de la flecha (300 m de largo, centrada en los pozos; es solo indicativa)
+                const LARGO_M = 300;
+                const rad = f.azimut * Math.PI / 180;
+                const mLat = 111320;
+                const mLon = 111320 * Math.cos(f.centro.lat * Math.PI / 180);
+                const mover = (lat, lon, dist, ang) =>
+                    [lat + dist * Math.cos(ang) / mLat, lon + dist * Math.sin(ang) / mLon];
+                // Cuerpo de la flecha (termina donde empieza la punta)
+                const inicio = mover(f.centro.lat, f.centro.lon, -LARGO_M / 2, rad);
+                const fin = mover(f.centro.lat, f.centro.lon, LARGO_M / 2, rad);
+                const basePunta = mover(fin[0], fin[1], -60, rad);
+                const izq = mover(basePunta[0], basePunta[1], 30, rad - Math.PI / 2);
+                const der = mover(basePunta[0], basePunta[1], 30, rad + Math.PI / 2);
+                const RUMBOS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+                const FLECHAS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+                const i = Math.round(f.azimut / 45) % 8;
+                const mPorKm = (f.gradiente * 1000).toFixed(1);
+
+                const texto =
+                    '<b>Dirección preliminar del flujo</b><br>' +
+                    `Hacia el ${RUMBOS[i]} (${f.azimut}° desde el norte)<br>` +
+                    `Gradiente hidráulico: ${f.gradiente} (${mPorKm} m por km)<br>` +
+                    `Pozos usados: ${f.pozos.join(', ')}<br>` +
+                    '<i style="color:#777">Preliminar: elevación obtenida del CEM (15 m)</i>';
+
+                const COLOR = '#dc2626';
+                                // Etiqueta fija junto al inicio de la flecha (un marcador de solo texto)
+                const etiqueta = L.marker(inicio, {
+                    icon: L.divIcon({
+                        className: '',
+                        html: `<div style="background:#fff;padding:2px 6px;border-radius:4px;` +
+                              `font:12px sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);` +
+                              `transform:translate(-105%,-50%)"><b>Flujo ${FLECHAS[i]}</b> ${mPorKm} m/km</div>`
+                    })
+                });
+
+                // Todo junto en una capa: triángulo, flecha y etiqueta
+                const capaFlujo = L.layerGroup([
+                    // Triángulo de los pozos usados
+                    L.polygon(f.vertices, { color: COLOR, weight: 2, dashArray: '6 6', fillColor: COLOR, fillOpacity: 0.10 }),
+                    // Borde blanco y cuerpo de la flecha
+                    L.polyline([inicio, basePunta], { color: '#fff', weight: 10, opacity: 0.9, lineCap: 'butt' }),
+                    L.polyline([inicio, basePunta], { color: COLOR, weight: 6, lineCap: 'butt' }),
+                    // Punta
+                    L.polygon([izq, fin, der], { color: '#fff', weight: 2, fillColor: COLOR, fillOpacity: 1 }),
+                    etiqueta
+                ]);   // sin .addTo(map): empieza apagada
+
+                capaFlujo.eachLayer(capa => capa.bindPopup(texto));
+
+                // Agregarla al control de capas
+                overlaysTree.unshift({
+                    label: `<span style="color:${COLOR};font-weight:bold">${FLECHAS[i]}</span> Dirección del flujo (preliminar)`,
+                    layer: capaFlujo
+                });
+                lay.setOverlayTree(overlaysTree);
+
+                capaFlujo.eachLayer(capa => capa.bindPopup(texto));
+
+                // Etiqueta fija junto al inicio de la flecha
+                L.tooltip({ permanent: true, direction: 'left', offset: [-8, 0] })
+                    .setLatLng(inicio)
+                    .setContent(`<b>Flujo ${FLECHAS[i]}</b> ${mPorKm} m/km`)
+                    .addTo(map);
+
+            })
+            .catch(error => console.error('Flujo:', error));
+
         const NOMBRES_CONDICION = {
             estatico: 'Sin bombeo',
             dinamico: 'En bombeo',
@@ -1129,11 +1211,14 @@
                     // Cómo se dibuja cada pozo: un círculo azul
                     pointToLayer: (feature, latlng) => {
                         const esCampo = feature.properties.tipo_fuente === 'campo';
+                        // Coordenada de celular (precisión baja): borde naranja punteado
+                        const deCelular = feature.properties.metodo_coordenada === 'celular';
                         return L.circleMarker(latlng, {
                             radius: esCampo ? 8 : 5,
                             fillColor: esCampo ? '#1d6e8c' : '#9aa5ad',
-                            color: '#ffffff',
-                            weight: 2,
+                            color: deCelular ? '#f59e0b' : '#ffffff',
+                            dashArray: deCelular ? '3 2' : null,
+                            weight: deCelular ? 3 : 2,
                             fillOpacity: 0.95,
                             pane: 'markerPane'
                         });
@@ -1143,9 +1228,12 @@
                         const encabezado =
                             `<b>${p.codigo}</b> ${p.nombre || ''}<br>` +
                             `Uso: ${p.uso || 'Sin dato'}<br>` +
-                            `Fuente: ${p.fuente} (${p.tipo_fuente})`;
-
-                        layer.bindPopup(encabezado + '<br><i>Cargando mediciones…</i>');
+                            `Fuente: ${p.fuente} (${p.tipo_fuente})` +
+                            (p.elevacion_terreno_m !== null
+                                ? `<br>Elevación del terreno: ${Number(p.elevacion_terreno_m).toLocaleString('es-MX')} msnm (CEM)`
+                                : '') +
+                            `<br>Coordenada: ${METODOS_COORDENADA[p.metodo_coordenada] || 'sin dato'}`;
+                        layer.bindPopup(encabezado + '<br><i>Cargando mediciones…</i>', { maxHeight: 320, minWidth: 260 });
 
                         // Cuando se abre el popup, pedir las mediciones de ese pozo
                         layer.on('popupopen', () => {
@@ -1184,6 +1272,15 @@
                                             ? 'profundidad ' + Number(m.profundidad_nivel_m).toFixed(2) + ' m'
                                             : '—';
                                         html += `${fecha}: ${nivel} (${NOMBRES_CONDICION[m.condicion] || m.condicion})<br>`;
+                                        // Trazabilidad: campaña y, con sesión, quién la registró
+                                        const origen = [m.campana ? escapar(m.campana) : null,
+                                                        m.registro ? 'registró: ' + escapar(m.registro) : null].filter(Boolean);
+                                        if (origen.length > 0) {
+                                            html += `&nbsp;&nbsp;<span style="color:#777;font-size:11px">${origen.join(' · ')}</span><br>`;
+                                        }
+                                        if (m.nivel_estatico_msnm !== null) {
+                                            html += `&nbsp;&nbsp;→ <b>Nivel estático: ${Number(m.nivel_estatico_msnm).toLocaleString('es-MX', { minimumFractionDigits: 2 })} msnm</b><br>`;
+                                        }
                                         if (m.alerta) html += `<span style="color:#b45309">⚠ Revisar: ${m.alerta}</span><br>`;
                                     });
 
@@ -1193,7 +1290,7 @@
                                         .reverse();
 
                                     if (serie.length >= 2) {
-                                        html += `<div style="width:240px;height:140px;margin-top:6px">` +
+                                        html += `<div style="width:100%;height:150px;margin-top:6px">` +
                                             `<canvas id="grafica-${p.id_pozo}"></canvas></div>`;
                                     } else if (mediciones.length > 0) {
                                         html += '<i style="color:#777">Se necesitan al menos 2 mediciones sin bombeo para la gráfica</i>';
@@ -1224,6 +1321,10 @@
                                             }
                                         });
                                     }
+
+                                    // Recolocar el popup ya con todo su contenido, para que no se salga del mapa
+                                    const popup = layer.getPopup();
+                                    if (popup._adjustPan) popup._adjustPan();
                                 })
                                 .catch(() => {
                                     layer.setPopupContent(encabezado + '<br>No se pudieron cargar las mediciones');
@@ -1240,6 +1341,8 @@
                     label: 'Pozos (base de datos)<br><table>' +
                         `<tr><td style="text-align:center">${circulo('#1d6e8c')}</td><td>De campo</td></tr>` +
                         `<tr><td style="text-align:center">${circulo('#9aa5ad')}</td><td>Otras fuentes</td></tr>` +
+                        `<tr><td style="text-align:center"><span style="display:inline-block;width:11px;height:11px;border-radius:50%;` +
+                        `border:2px dashed #f59e0b"></span></td><td>Coordenada de celular</td></tr>` +
                         '</table>',
                     layer: capaPozosBD
                 });
@@ -1294,6 +1397,81 @@
         });
 
 
+
+        // Panel "Resumen de la microcuenca": cifras que calcula el servidor a partir de la base de datos
+        fetch('/api/resumen')
+            .then(r => r.json())
+            .then(d => {
+                if (d.error) return;
+                const num = (v, dec = 0) => Number(v).toLocaleString('es-MX', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+                const ls = d.concesiones.volumen * 1000 / 31536000;
+                const ultima = d.mediciones.ultima ? new Date(d.mediciones.ultima).toLocaleDateString('es-MX') : 'sin mediciones';
+                const fila = (etiqueta, valor) =>
+                    `<tr><td style="padding:1px 8px 1px 0;color:#555">${etiqueta}</td><td style="text-align:right"><b>${valor}</b></td></tr>`;
+
+                const control = L.control({ position: 'bottomright' });
+                control.onAdd = function () {
+                    const div = L.DomUtil.create('div');
+                    div.style.cssText = 'background:#fff;padding:8px 12px;border-radius:8px;' +
+                        'box-shadow:0 1px 5px rgba(0,0,0,.35);font:12px sans-serif;max-height:340px;overflow:auto;max-width:280px';
+                    div.innerHTML =
+                        '<div id="resumen-titulo" style="cursor:pointer;font-weight:bold;user-select:none">' +
+                        '<span id="resumen-flecha">▸</span> Resumen de la microcuenca</div>' +
+                        '<div id="resumen-contenido" style="display:none;margin-top:6px">' +
+                        '<table style="border-collapse:collapse">' +
+                        fila('Pozos', `${num(d.pozos.total)}`) +
+                        fila('&nbsp;&nbsp;de campo', num(d.pozos.campo)) +
+                        fila('&nbsp;&nbsp;de otras fuentes', num(d.pozos.total - d.pozos.campo)) +
+                        '</table>' +
+                        '<div style="margin-top:6px"><b>Pozos por uso</b></div><table style="border-collapse:collapse">' +
+                        d.usos.map(u => fila(escapar(u.uso), num(u.n))).join('') +
+                        '</table>' +
+                        '<div style="margin-top:6px"><b>Concesiones (REPDA)</b></div><table style="border-collapse:collapse">' +
+                        fila('Registros', num(d.concesiones.total)) +
+                        fila('Volumen anual', `${num(d.concesiones.volumen / 1e6, 2)} hm³`) +
+                        fila('Equivale a', `${num(ls, 1)} L/s`) +
+                        '</table>' +
+                        (d.concesiones.dudosos > 0
+                            ? `<div style="color:#b45309">⚠ ${d.concesiones.dudosos} volumen dudoso no se suma</div>` : '') +
+                        '<div style="margin-top:6px"><b>Monitoreo</b></div><table style="border-collapse:collapse">' +
+                        fila('Mediciones', num(d.mediciones.total)) +
+                        fila('Última medición', ultima) +
+                        fila('Pozos con nivel estático', num(d.niveles.pozos)) +
+                        (d.niveles.pozos > 0
+                            ? fila('Rango del nivel', `${num(d.niveles.minimo)}–${num(d.niveles.maximo)} msnm`) : '') +
+                        '</table>' +
+                        '<div style="margin-top:6px;color:#777">Volumen concesionado ≠ volumen extraído</div>' +
+                        '</div>';
+                    L.DomEvent.disableClickPropagation(div);
+                    L.DomEvent.disableScrollPropagation(div);
+                    const contenido = div.querySelector('#resumen-contenido');
+                    const flecha = div.querySelector('#resumen-flecha');
+                    div.querySelector('#resumen-titulo').addEventListener('click', () => {
+                        const oculto = contenido.style.display === 'none';
+                        contenido.style.display = oculto ? '' : 'none';
+                        flecha.textContent = oculto ? '▾' : '▸';
+                    });
+                    return div;
+                };
+                control.addTo(map);
+            })
+            .catch(error => console.error('No se pudo cargar el resumen:', error));
+
+        // Botón "Volver a la plataforma": solo aparece cuando el mapa está en pantalla completa
+        // (si el mapa está dentro de la página principal, no hace falta)
+        if (window.self === window.top) {
+            const volver = L.control({ position: 'topleft' });
+            volver.onAdd = function () {
+                const a = L.DomUtil.create('a');
+                a.href = '../index.html';
+                a.textContent = '← Volver a la plataforma';
+                a.style.cssText = 'display:block;background:#fff;color:#334155;padding:7px 12px;border-radius:8px;' +
+                    'box-shadow:0 1px 5px rgba(0,0,0,.35);font:bold 12px sans-serif;text-decoration:none';
+                L.DomEvent.disableClickPropagation(a);
+                return a;
+            };
+            volver.addTo(map);
+        }
 
         // Mientras se mide, no abrir las ventanas de información de las capas
         map.on('popupopen', function () {
